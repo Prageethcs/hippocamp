@@ -91,7 +91,7 @@ for h in hits:
 
 ## Status
 
-Pre-alpha. v0.0.1 ships with: tiered memory, four-signal ranker, real semantic recall (BGE small), MCP server, supersedence-based forgetting. Coming next: `sqlite-vec` for production-scale vector search, `reflect()` LLM consolidation, encrypted device sync.
+**v0.1.0 (alpha).** Working: tiered memory (episode / fact / preference), four-signal ranker with why-trace, real semantic recall (BGE small), MCP server with two tools (`recall_memory`, `update_memory`), one-command setup for Claude Code / Claude Desktop / Cursor / Gemini CLI, supersedence-based forgetting. Coming next: `sqlite-vec` for production-scale vector search, `reflect()` LLM consolidation, encrypted multi-device sync.
 
 ## License
 
