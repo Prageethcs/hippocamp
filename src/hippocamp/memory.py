@@ -61,11 +61,14 @@ class Memory:
             store_dir = Path(self._path_str).parent
             store_dir.mkdir(parents=True, exist_ok=True)
             embedder_name = getattr(embedder, "name", type(embedder).__name__)
-            self._meta = load_or_init_meta(
-                store_dir / "meta.json", embedder_name=embedder_name
-            )
+            meta_path = store_dir / "meta.json"
+            meta_was_new = not meta_path.exists()
+            self._meta = load_or_init_meta(meta_path, embedder_name=embedder_name)
             self._events = EventLog(store_dir / "events.jsonl")
             self._device_id = device_id or load_or_init_device_id()
+
+            if meta_was_new and self._events.count() == 0:
+                self._bootstrap_events_from_cache()
 
     @property
     def meta(self) -> StoreMeta | None:
@@ -253,6 +256,92 @@ class Memory:
                 **fields,
             )
         )
+
+    def _bootstrap_events_from_cache(self) -> int:
+        """Generate events for rows already in the cache.
+
+        Runs once when a pre-v0.3 store is opened for the first time
+        under the new architecture. Without this, the cache and the
+        (empty) event log would silently disagree, and `replay()`
+        would lose every existing memory.
+
+        Returns the number of events written.
+        """
+        import json as _json
+
+        if self._events is None:
+            return 0
+
+        rows = self._store._conn.execute(
+            "SELECT id, kind, text, created_at, superseded_at, metadata "
+            "FROM memories ORDER BY created_at"
+        ).fetchall()
+        if not rows:
+            return 0
+
+        n = 0
+        for mem_id, kind, text, created_at, superseded_at, metadata_json in rows:
+            ts = datetime.fromisoformat(created_at)
+            meta = _json.loads(metadata_json or "{}")
+
+            if kind == "episode":
+                self._events.append(
+                    Event(
+                        id=new_event_id(),
+                        ts=ts,
+                        device=self._device_id,
+                        op=EventOp.OBSERVE,
+                        mem_id=mem_id,
+                        text=text or "",
+                        metadata=meta,
+                    )
+                )
+            elif kind == "fact":
+                self._events.append(
+                    Event(
+                        id=new_event_id(),
+                        ts=ts,
+                        device=self._device_id,
+                        op=EventOp.ASSERT_FACT,
+                        mem_id=mem_id,
+                        text=text or "",
+                        evidence=meta.get("evidence", []) or [],
+                        supersedes=meta.get("supersedes", []) or [],
+                    )
+                )
+            elif kind == "preference":
+                self._events.append(
+                    Event(
+                        id=new_event_id(),
+                        ts=ts,
+                        device=self._device_id,
+                        op=EventOp.ASSERT_PREF,
+                        mem_id=mem_id,
+                        text=text or "",
+                        strength=meta.get("strength", 1.0),
+                    )
+                )
+            else:
+                continue
+            n += 1
+
+            # If the row was already tombstoned, also emit a forget event
+            # at the original tombstone time, so replay reconstructs the
+            # superseded state correctly.
+            if superseded_at:
+                forget_ts = datetime.fromisoformat(superseded_at)
+                self._events.append(
+                    Event(
+                        id=new_event_id(),
+                        ts=forget_ts,
+                        device=self._device_id,
+                        op=EventOp.FORGET,
+                        mem_id=mem_id,
+                    )
+                )
+                n += 1
+
+        return n
 
     def _apply(self, event: Event) -> None:
         """Apply an event to the cache only (no event emission). Used by replay."""

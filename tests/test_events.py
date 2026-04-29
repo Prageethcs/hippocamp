@@ -211,6 +211,69 @@ def test_replay_preserves_recall_ranking(tmp_path):
     )
 
 
+# --------------------------------------------------- migration / bootstrap
+
+
+def test_bootstrap_creates_events_from_existing_cache(tmp_path):
+    """Opening a pre-v0.3 store (cache rows, no events) bootstraps the log.
+
+    This is the migration path for users upgrading from v0.1. Without
+    it, calling replay() on their existing data would wipe it.
+    """
+    # Simulate a pre-v0.3 store: write rows directly to the cache, no
+    # events.jsonl, no meta.json.
+    db_path = tmp_path / "store.db"
+    pre_mem = Memory(path=":memory:", embedder=HashEmbedder())  # to populate
+    # Write directly via Store to skip event emission, then move to disk:
+    from hippocamp.store import Store
+    s = Store(str(db_path))
+    s._conn.execute(
+        "INSERT INTO memories (id, kind, text, created_at, last_seen_at, "
+        "metadata, embedding) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        ("ep_legacy", "episode", "legacy episode", "2026-04-01T00:00:00+00:00",
+         "2026-04-01T00:00:00+00:00", "{}", "[]"),
+    )
+    s._conn.execute(
+        "INSERT INTO memories (id, kind, text, created_at, last_seen_at, "
+        "metadata, embedding) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        ("fa_legacy", "fact", "legacy fact", "2026-04-02T00:00:00+00:00",
+         "2026-04-02T00:00:00+00:00", '{"evidence": []}', "[]"),
+    )
+    s.close()
+
+    # Now open with the new architecture
+    mem = Memory(path=str(db_path), embedder=HashEmbedder(), device_id="dev_test")
+
+    # events.jsonl should now exist with bootstrapped events
+    events = list(EventLog(tmp_path / "events.jsonl").read_all())
+    assert len(events) == 2
+    ids = {e.mem_id for e in events}
+    assert ids == {"ep_legacy", "fa_legacy"}
+
+    # And replay should now be safe — it should rebuild what was there.
+    n = mem.replay()
+    assert n == 2
+    rows = mem._store._conn.execute(
+        "SELECT id FROM memories ORDER BY id"
+    ).fetchall()
+    assert {r[0] for r in rows} == {"ep_legacy", "fa_legacy"}
+
+
+def test_bootstrap_does_not_run_on_subsequent_opens(tmp_path):
+    """Bootstrap should only fire on the very first v0.3+ open."""
+    # First open (creates meta.json, no rows so no events)
+    mem1 = Memory(path=str(tmp_path / "store.db"), embedder=HashEmbedder(), device_id="d1")
+    mem1.observe("a thing")
+    mem1.close()
+
+    events_before = (tmp_path / "events.jsonl").read_text()
+
+    # Second open should not re-bootstrap
+    mem2 = Memory(path=str(tmp_path / "store.db"), embedder=HashEmbedder(), device_id="d1")
+    events_after = (tmp_path / "events.jsonl").read_text()
+    assert events_before == events_after
+
+
 # ----------------------------------------------------- in-memory mode
 
 
