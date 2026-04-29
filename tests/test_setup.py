@@ -1,0 +1,111 @@
+"""Tests for the per-host setup logic.
+
+All tests use temp paths so the user's actual config files are never
+touched. The Claude Code setup uses the `claude` CLI directly and is
+skipped here; it's covered by manual integration testing.
+"""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+import pytest
+
+from hippocamp.setup import (
+    _add_mcp_entry,
+    setup_claude_desktop,
+    setup_cursor,
+    setup_gemini_cli,
+)
+
+
+def _read(path: Path) -> dict:
+    return json.loads(path.read_text())
+
+
+def test_add_creates_new_config(tmp_path):
+    cfg = tmp_path / "config.json"
+    res = _add_mcp_entry(cfg, "hippocamp", "/usr/local/bin/hippocamp-mcp")
+
+    assert cfg.exists()
+    assert res.action == "added"
+    data = _read(cfg)
+    assert data["mcpServers"]["hippocamp"] == {
+        "command": "/usr/local/bin/hippocamp-mcp"
+    }
+
+
+def test_add_preserves_unrelated_keys(tmp_path):
+    cfg = tmp_path / "config.json"
+    cfg.write_text(json.dumps({
+        "theme": "dark",
+        "mcpServers": {"sentry": {"command": "sentry-mcp"}},
+    }))
+
+    _add_mcp_entry(cfg, "hippocamp", "/x/hippocamp-mcp")
+
+    data = _read(cfg)
+    assert data["theme"] == "dark"
+    assert "sentry" in data["mcpServers"]
+    assert "hippocamp" in data["mcpServers"]
+
+
+def test_add_is_idempotent(tmp_path):
+    cfg = tmp_path / "config.json"
+    _add_mcp_entry(cfg, "hippocamp", "/x/hippocamp-mcp")
+
+    res = _add_mcp_entry(cfg, "hippocamp", "/x/hippocamp-mcp")
+    assert res.action == "already-present"
+
+
+def test_add_updates_when_command_differs(tmp_path):
+    cfg = tmp_path / "config.json"
+    _add_mcp_entry(cfg, "hippocamp", "/old/hippocamp-mcp")
+
+    res = _add_mcp_entry(cfg, "hippocamp", "/new/hippocamp-mcp")
+    assert res.action == "updated"
+    data = _read(cfg)
+    assert data["mcpServers"]["hippocamp"]["command"] == "/new/hippocamp-mcp"
+
+
+def test_add_rejects_invalid_json(tmp_path):
+    cfg = tmp_path / "broken.json"
+    cfg.write_text("{not valid json")
+
+    with pytest.raises(RuntimeError, match="not valid JSON"):
+        _add_mcp_entry(cfg, "hippocamp", "/x/hippocamp-mcp")
+
+
+def test_setup_claude_desktop_writes_to_given_path(tmp_path):
+    cfg = tmp_path / "claude_desktop_config.json"
+    res = setup_claude_desktop(
+        command="/x/hippocamp-mcp", config_path=cfg
+    )
+    assert res.host == "claude-desktop"
+    assert res.action == "added"
+    assert "Restart Claude Desktop" in res.notes
+    data = _read(cfg)
+    assert data["mcpServers"]["hippocamp"]["command"] == "/x/hippocamp-mcp"
+
+
+def test_setup_cursor_writes_to_given_path(tmp_path):
+    cfg = tmp_path / "mcp.json"
+    res = setup_cursor(command="/x/hippocamp-mcp", config_path=cfg)
+    assert res.host == "cursor"
+    assert res.action == "added"
+    assert _read(cfg)["mcpServers"]["hippocamp"]["command"] == "/x/hippocamp-mcp"
+
+
+def test_setup_gemini_cli_writes_to_given_path(tmp_path):
+    cfg = tmp_path / "settings.json"
+    res = setup_gemini_cli(command="/x/hippocamp-mcp", config_path=cfg)
+    assert res.host == "gemini-cli"
+    assert res.action == "added"
+    assert _read(cfg)["mcpServers"]["hippocamp"]["command"] == "/x/hippocamp-mcp"
+
+
+def test_setup_creates_parent_dirs(tmp_path):
+    cfg = tmp_path / "deeply" / "nested" / "path" / "config.json"
+    setup_cursor(command="/x/hippocamp-mcp", config_path=cfg)
+    assert cfg.exists()

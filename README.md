@@ -32,23 +32,31 @@ pip install 'hippocamp[mcp,embeddings]'
 
 Includes the MCP server and a real local embedder (BAAI/bge-small-en-v1.5, ~130MB, downloaded on first use).
 
-## Wire it into Claude Code (or any MCP host)
+## Wire it into your AI host
+
+One command per host. Each is idempotent — safe to re-run, never overwrites existing config.
 
 ```bash
-claude mcp add -s user hippocamp -- $(which hippocamp-mcp)
+hippocamp setup claude          # Claude Code (uses `claude mcp add`)
+hippocamp setup claude-desktop  # Claude Desktop
+hippocamp setup cursor          # Cursor
+hippocamp setup gemini-cli      # Gemini CLI
 ```
 
-Or add to `~/.claude.json` / `claude_desktop_config.json` / your host's config directly:
+Or run the bundled installer for a one-liner that pip-installs and configures in a single step:
 
-```json
-{
-  "mcpServers": {
-    "hippocamp": { "command": "hippocamp-mcp" }
-  }
-}
+```bash
+bash <(curl -sSL https://hippocamp.so/install) claude
 ```
 
-The host now has two tools: `recall_memory` and `update_memory`.
+After setup, the host has two new tools: `recall_memory` and `update_memory`. Memory lives at `~/.hippocamp/store.db`.
+
+## Inspect what's stored
+
+```bash
+hippocamp inspect                          # counts by kind
+hippocamp inspect --query "preferences"    # ranked recall with why-trace
+```
 
 ### Make Claude prefer Hippocamp over its built-in memory
 

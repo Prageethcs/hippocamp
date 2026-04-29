@@ -33,6 +33,7 @@ dev = [
 ]
 
 [project.scripts]
+hippocamp = "hippocamp.cli:main"
 hippocamp-mcp = "hippocamp.mcp_server:main"
 
 [tool.hatch.build.targets.wheel]
