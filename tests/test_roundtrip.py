@@ -1,8 +1,14 @@
 from hippocamp import Memory
+from hippocamp.embedders import HashEmbedder
+
+
+def _mem() -> Memory:
+    """Memory with the deterministic stub embedder, for fast unit tests."""
+    return Memory(path=":memory:", embedder=HashEmbedder())
 
 
 def test_observe_then_recall():
-    mem = Memory(path=":memory:")
+    mem = _mem()
     ep_id = mem.observe("the user is asking about deploying to GCP")
 
     hits = mem.recall("deploy to gcp", limit=5)
@@ -16,12 +22,12 @@ def test_observe_then_recall():
 
 
 def test_recall_with_no_query_returns_empty():
-    mem = Memory(path=":memory:")
+    mem = _mem()
     assert mem.recall(None) == []
 
 
 def test_inspect_counts_by_kind():
-    mem = Memory(path=":memory:")
+    mem = _mem()
     mem.observe("first")
     mem.observe("second")
     mem.assert_fact("the moon is round")
@@ -35,7 +41,7 @@ def test_inspect_counts_by_kind():
 
 
 def test_kind_filter_excludes_other_kinds():
-    mem = Memory(path=":memory:")
+    mem = _mem()
     mem.observe("an episode")
     fact_id = mem.assert_fact("a fact about the world")
 
@@ -46,7 +52,7 @@ def test_kind_filter_excludes_other_kinds():
 
 
 def test_supersedes_marks_old_fact_inactive():
-    mem = Memory(path=":memory:")
+    mem = _mem()
     old = mem.assert_fact("project uses Python 3.12")
     mem.assert_fact("project uses Python 3.13", supersedes=[old])
 

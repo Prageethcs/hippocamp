@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -30,7 +29,11 @@ class Memory:
         llm: Any | None = None,
     ) -> None:
         self._store = Store(path)
-        self._embedder = embedder or _default_embedder
+        if embedder is None:
+            from hippocamp.embedders import default_embedder
+
+            embedder = default_embedder()
+        self._embedder = embedder
         self._llm = llm
 
     # ------------------------------------------------------------------ write
@@ -163,14 +166,3 @@ def _parse_when(when: str | datetime) -> datetime:
     if s.endswith("h"):
         return _now() - timedelta(hours=int(s[:-1]))
     return datetime.fromisoformat(s)
-
-
-def _default_embedder(text: str) -> list[float]:
-    """Deterministic stub embedder.
-
-    Hashes input into a 32-dim float vector. Sufficient for round-tripping
-    and unit tests; replace with a real model (e.g. bge-small-en) before
-    relying on semantic recall.
-    """
-    h = hashlib.sha256(text.encode("utf-8")).digest()
-    return [(b - 128) / 128.0 for b in h]
