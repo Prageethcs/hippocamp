@@ -1,27 +1,60 @@
 # Hippocamp
 
-Local-first agent memory with tiered storage, observable retrieval, and first-class forgetting.
+**One memory that works across every AI you use.**
 
-> *Memory that's yours, runs on your machine, plugs into any AI.*
+Hippocamp is a portable memory layer for LLM agents. Write a preference in Claude Code, recall it in Cursor. Tell ChatGPT something about your project, have it remembered when you switch to your own agent loop. Your memory follows you, not the host.
 
-## What it is
+> *Local-first. Multi-host. Yours.*
 
-Hippocamp is an opinionated memory engine for LLM agents. Two artifacts from one core:
+## Why portable matters
 
-1. **Python library** — `pip install hippocamp` for builders writing agent loops directly against the Anthropic / OpenAI / LangGraph SDKs.
-2. **MCP server** — `hippocamp-mcp` exposes the same engine to any MCP-compatible host (Claude Desktop, Claude Code, ChatGPT Apps, Cursor, Cline, Windsurf). Memory data lives on the user's machine; hosts only call the server.
+Most AI memory today is locked to one host:
 
-## Why it's different
+- ChatGPT's "Memory" feature only works in ChatGPT.
+- Claude Code's auto-memory only works in Claude Code.
+- Cloud agent-memory services (Mem0, Zep, Letta) want your data on their servers.
 
-Most agent-memory libraries dump everything into one vector store and call cosine similarity "memory." Hippocamp's wedge:
+Hippocamp lives on your machine. Every host that speaks MCP — Claude Desktop, Claude Code, ChatGPT Apps, Cursor, Cline, Windsurf, your own agent loops — calls the same store at `~/.hippocamp/store.db`. Your memory is yours.
 
-- **Tiered storage**: distinct memory *kinds* (episode, fact, preference, reflection) with different retrieval semantics.
-- **Observable**: every recall comes with a `why` trace explaining how the score was composed (similarity + recency + kind-boost + salience).
-- **First-class forgetting**: TTL, supersedence, and redundancy collapse are features, not afterthoughts.
-- **Local-first**: SQLite on your machine, never the cloud.
-- **Embedding-model-agnostic**: swap models without re-migrating.
+## What it gives you
 
-## Quickstart — Python
+- **Tiered storage** — episodes, facts, preferences, and reflections — each with different retrieval semantics.
+- **Observable retrieval** — every recall comes with a `why` trace explaining the score (similarity + recency + kind-boost + salience).
+- **First-class forgetting** — TTL, supersedence, and redundancy collapse, all visible.
+- **Local-first** — SQLite on your machine. Never the cloud.
+- **MCP-first** — wire it into any compliant host once, use it everywhere.
+
+## Install
+
+```bash
+pip install 'hippocamp[mcp,embeddings]'
+```
+
+Includes the MCP server and a real local embedder (BAAI/bge-small-en-v1.5, ~130MB, downloaded on first use).
+
+## Wire it into Claude Code (or any MCP host)
+
+```bash
+claude mcp add -s user hippocamp -- $(which hippocamp-mcp)
+```
+
+Or add to `~/.claude.json` / `claude_desktop_config.json` / your host's config directly:
+
+```json
+{
+  "mcpServers": {
+    "hippocamp": { "command": "hippocamp-mcp" }
+  }
+}
+```
+
+The host now has two tools: `recall_memory` and `update_memory`.
+
+### Make Claude prefer Hippocamp over its built-in memory
+
+Many hosts have their own memory features. To make sure Hippocamp wins, drop [`templates/CLAUDE.md`](templates/CLAUDE.md) into the root of any project where you want Hippocamp to be the default. It's a short instruction set that tells the assistant when to use Hippocamp vs the host's built-in.
+
+## Quickstart — Python library
 
 ```python
 import hippocamp as hc
@@ -37,27 +70,9 @@ for h in hits:
     print(h.kind, h.text, h.score, h.why.note)
 ```
 
-## Quickstart — MCP
-
-```bash
-pip install 'hippocamp[mcp]'
-```
-
-Wire into Claude Desktop / Cursor / etc:
-
-```json
-{
-  "mcpServers": {
-    "hippocamp": { "command": "hippocamp-mcp" }
-  }
-}
-```
-
-Two tools are exposed: `recall_memory` and `update_memory`. Memory lives at `~/.hippocamp/store.db` — never leaves your machine.
-
 ## Status
 
-Pre-alpha. v0.0.1 is a working scaffold: ranking, storage, kind filtering, and supersedence pass tests with a stub embedder. Real embedding model, `reflect()` consolidation, and sqlite-vec acceleration arrive in v0.1.0.
+Pre-alpha. v0.0.1 ships with: tiered memory, four-signal ranker, real semantic recall (BGE small), MCP server, supersedence-based forgetting. Coming next: `sqlite-vec` for production-scale vector search, `reflect()` LLM consolidation, encrypted device sync.
 
 ## License
 

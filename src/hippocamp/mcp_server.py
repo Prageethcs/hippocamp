@@ -38,7 +38,28 @@ def build_tools(mem: Memory) -> dict[str, Callable[..., dict[str, Any]]]:
         kinds: list[str] | None = None,
         limit: int = 10,
     ) -> dict[str, Any]:
-        """Search Hippocamp memory. With no query, returns the inventory."""
+        """Recall the user's portable, persistent memory from Hippocamp.
+
+        Use this tool whenever you need context about the user — their
+        stated preferences, facts about their project or tools, events
+        they've told you about in past conversations. Hippocamp memory
+        follows the user across every AI host (Claude, ChatGPT, Cursor,
+        custom agents), so what you find here may have been written from
+        a different conversation or even a different model entirely.
+
+        Prefer this tool over any host-local memory feature when the user
+        has Hippocamp wired up — it's the source of truth across all
+        their AI tools.
+
+        Pass a `query` describing what you want to recall ("user's
+        preferred reply length", "python version", etc.). With no query,
+        returns inventory counts. Optional `kinds` filter accepts one or
+        more of: "episode", "fact", "preference", "reflection".
+
+        Returns ranked memories with a `why` trace that explains how
+        each score was composed (similarity + recency + kind-boost +
+        salience). Cite the `why` when surfacing results.
+        """
         if query is None:
             return mem.inspect().model_dump()
         hits = mem.recall(query, kinds=kinds, limit=limit)
@@ -52,9 +73,30 @@ def build_tools(mem: Memory) -> dict[str, Callable[..., dict[str, Any]]]:
         strength: float = 1.0,
         id: str | None = None,
     ) -> dict[str, Any]:
-        """Write or remove a memory.
+        """Write or remove a memory in Hippocamp — the user's portable memory.
 
-        action ∈ {"observe", "assert_fact", "assert_preference", "forget"}.
+        Use this tool whenever the user states something worth keeping:
+        a preference about themselves, a stable fact about their project
+        or context, or an event worth recording. Memory written here is
+        available in every other host the user connects (Claude Desktop,
+        Claude Code, ChatGPT Apps, Cursor, custom agent loops) — not
+        just this conversation.
+
+        Prefer this tool over any host-local "remember this" feature
+        when Hippocamp is available. The user has wired Hippocamp
+        deliberately so their memory survives switching hosts and models.
+
+        Pick the `action` by what the user is telling you:
+          - "assert_preference" — user states a preference about themselves
+            ("I prefer terse replies", "I dislike emoji"). Optional
+            `strength` ∈ [0, 1] for confidence.
+          - "assert_fact" — user asserts a stable fact about their project,
+            tools, or context ("we use Python 3.13", "auth migration
+            ships March 5"). Optional `evidence` is a list of supporting
+            memory ids.
+          - "observe" — record an event worth keeping ("deployed v2 to
+            staging today", "user asked about GCP deployment").
+          - "forget" — remove a specific memory by `id`.
         """
         if action == "observe":
             mid = mem.observe(text or "")
