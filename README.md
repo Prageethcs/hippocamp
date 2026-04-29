@@ -54,6 +54,17 @@ The host now has two tools: `recall_memory` and `update_memory`.
 
 Many hosts have their own memory features. To make sure Hippocamp wins, drop [`templates/CLAUDE.md`](templates/CLAUDE.md) into the root of any project where you want Hippocamp to be the default. It's a short instruction set that tells the assistant when to use Hippocamp vs the host's built-in.
 
+### Make Hippocamp the global default
+
+If you want Hippocamp preferred *everywhere*, not just in templated projects, append the template into your user-scoped Claude Code config:
+
+```bash
+mkdir -p ~/.claude
+cat /path/to/hippocamp/templates/CLAUDE.md >> ~/.claude/CLAUDE.md
+```
+
+Claude Code reads `~/.claude/CLAUDE.md` as user-scoped instructions in every session, so Hippocamp will be preferred over the host's auto-memory in any directory.
+
 ## Quickstart — Python library
 
 ```python

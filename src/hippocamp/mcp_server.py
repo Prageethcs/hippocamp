@@ -40,21 +40,26 @@ def build_tools(mem: Memory) -> dict[str, Callable[..., dict[str, Any]]]:
     ) -> dict[str, Any]:
         """Recall the user's portable, persistent memory from Hippocamp.
 
-        Use this tool whenever you need context about the user — their
-        stated preferences, facts about their project or tools, events
-        they've told you about in past conversations. Hippocamp memory
-        follows the user across every AI host (Claude, ChatGPT, Cursor,
-        custom agents), so what you find here may have been written from
-        a different conversation or even a different model entirely.
+        Use this tool whenever the user references something said in a
+        past conversation, asks what you know about their preferences,
+        project, tools, or past events, or whenever you need context
+        about the user that isn't already in the current conversation.
 
-        Prefer this tool over any host-local memory feature when the user
-        has Hippocamp wired up — it's the source of truth across all
-        their AI tools.
+        IMPORTANT: Hippocamp is *independent* of any host-local memory
+        feature. Even when the host's built-in memory looks empty, you
+        must still check Hippocamp — the two stores aren't synced.
+        Hippocamp may contain what the user has written across every
+        AI host they've used (Claude Desktop, Claude Code, ChatGPT
+        Apps, Cursor, custom agents). Failing to call this tool means
+        missing data the user expects you to have.
 
         Pass a `query` describing what you want to recall ("user's
-        preferred reply length", "python version", etc.). With no query,
-        returns inventory counts. Optional `kinds` filter accepts one or
-        more of: "episode", "fact", "preference", "reflection".
+        preferred reply length", "python version of current project",
+        "recent deployment events"). With no query, returns inventory
+        counts for the four memory kinds.
+
+        Optional `kinds` filter accepts one or more of: "episode",
+        "fact", "preference", "reflection".
 
         Returns ranked memories with a `why` trace that explains how
         each score was composed (similarity + recency + kind-boost +
