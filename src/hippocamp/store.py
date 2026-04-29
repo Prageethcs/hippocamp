@@ -72,12 +72,18 @@ class Store:
             ),
         )
 
-    def mark_superseded(self, ids: list[str], *, by: str) -> None:
-        now = datetime.now(timezone.utc).isoformat()
+    def mark_superseded(
+        self,
+        ids: list[str],
+        *,
+        by: str,
+        when: datetime | None = None,
+    ) -> None:
+        ts = (when or datetime.now(timezone.utc)).isoformat()
         for old_id in ids:
             self._conn.execute(
                 "UPDATE memories SET superseded_at = ? WHERE id = ?",
-                (now, old_id),
+                (ts, old_id),
             )
 
     def search(
@@ -125,15 +131,39 @@ class Store:
                 (now, mem_id),
             )
 
-    def delete(self, id: str) -> None:
-        self._conn.execute("DELETE FROM memories WHERE id = ?", (id,))
+    def tombstone(self, id: str, *, when: datetime | None = None) -> None:
+        """Mark a memory inactive (soft-delete). Preserves the row so the
+        event log remains the source of truth and replay is deterministic.
+        """
+        ts = (when or datetime.now(timezone.utc)).isoformat()
+        self._conn.execute(
+            "UPDATE memories SET superseded_at = ? WHERE id = ?",
+            (ts, id),
+        )
+
+    def wipe(self) -> None:
+        """Drop all rows. Used by `Memory.replay()` before rebuilding."""
+        self._conn.execute("DELETE FROM memories")
+
+    def list_active_before(self, cutoff: datetime) -> list[str]:
+        """Ids of active (non-superseded) memories created before `cutoff`."""
+        rows = self._conn.execute(
+            "SELECT id FROM memories "
+            "WHERE created_at < ? AND superseded_at IS NULL",
+            (cutoff.isoformat(),),
+        ).fetchall()
+        return [r[0] for r in rows]
 
     def expire_before(self, cutoff: datetime) -> int:
-        cur = self._conn.execute(
-            "DELETE FROM memories WHERE created_at < ?",
-            (cutoff.isoformat(),),
-        )
-        return cur.rowcount
+        """Tombstone all active memories created before `cutoff`. Returns count."""
+        ids = self.list_active_before(cutoff)
+        ts = datetime.now(timezone.utc).isoformat()
+        for mem_id in ids:
+            self._conn.execute(
+                "UPDATE memories SET superseded_at = ? WHERE id = ?",
+                (ts, mem_id),
+            )
+        return len(ids)
 
     def compact(self) -> CompactReport:
         return CompactReport(merged=0, dropped=0)

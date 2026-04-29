@@ -1,4 +1,10 @@
-"""Hippocamp's public Memory class — the single entry point for the library."""
+"""Hippocamp's public Memory class — the single entry point for the library.
+
+Memory mutations (observe / assert_fact / assert_preference / forget) write
+to two places: the append-only event log (`events.jsonl`) and the SQLite
+cache (`store.db`). The event log is the source of truth; the cache is a
+derived index that can be rebuilt by `replay()`.
+"""
 
 from __future__ import annotations
 
@@ -7,6 +13,8 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable, Iterable, Literal
 
+from hippocamp.events import Event, EventLog, EventOp, new_event_id
+from hippocamp.meta import StoreMeta, load_or_init_device_id, load_or_init_meta
 from hippocamp.ranker import rank
 from hippocamp.store import Store
 from hippocamp.types import CompactReport, Inventory, RecallResult
@@ -17,8 +25,12 @@ Kind = Literal["episode", "fact", "preference", "reflection"]
 class Memory:
     """Local-first agent memory.
 
-    All data lives in a single SQLite file. No network calls are made unless
-    you opt in by passing an `llm` (used only by `reflect()`).
+    All data lives under a single directory containing `meta.json`,
+    `events.jsonl`, and `store.db`. No network calls are made unless you
+    opt in by passing an `llm` (used only by `reflect()`).
+
+    Pass `path=":memory:"` to skip the event log entirely (used by tests
+    and ephemeral integrations).
     """
 
     def __init__(
@@ -27,14 +39,45 @@ class Memory:
         *,
         embedder: Callable[[str], list[float]] | None = None,
         llm: Any | None = None,
+        device_id: str | None = None,
     ) -> None:
+        self._path_str = str(path)
         self._store = Store(path)
+
         if embedder is None:
             from hippocamp.embedders import default_embedder
 
             embedder = default_embedder()
         self._embedder = embedder
         self._llm = llm
+
+        self._meta: StoreMeta | None = None
+        self._events: EventLog | None = None
+        self._device_id: str
+
+        if self._path_str == ":memory:":
+            self._device_id = device_id or "in-memory"
+        else:
+            store_dir = Path(self._path_str).parent
+            store_dir.mkdir(parents=True, exist_ok=True)
+            embedder_name = getattr(embedder, "name", type(embedder).__name__)
+            self._meta = load_or_init_meta(
+                store_dir / "meta.json", embedder_name=embedder_name
+            )
+            self._events = EventLog(store_dir / "events.jsonl")
+            self._device_id = device_id or load_or_init_device_id()
+
+    @property
+    def meta(self) -> StoreMeta | None:
+        return self._meta
+
+    @property
+    def device_id(self) -> str:
+        return self._device_id
+
+    @property
+    def events_path(self) -> Path | None:
+        return self._events.path if self._events else None
 
     # ------------------------------------------------------------------ write
 
@@ -47,11 +90,20 @@ class Memory:
         metadata: dict[str, Any] | None = None,
     ) -> str:
         eid = _new_id("ep")
+        when = at or _now()
+        self._emit(
+            EventOp.OBSERVE,
+            mem_id=eid,
+            ts=when,
+            text=text,
+            actors=actors or [],
+            metadata=metadata or {},
+        )
         self._store.insert(
             id=eid,
             kind="episode",
             text=text,
-            created_at=at or _now(),
+            created_at=when,
             metadata=metadata or {},
             embedding=self._embedder(text),
             extras={"actors": actors or []},
@@ -66,25 +118,42 @@ class Memory:
         supersedes: list[str] | None = None,
     ) -> str:
         fid = _new_id("fa")
+        when = _now()
+        self._emit(
+            EventOp.ASSERT_FACT,
+            mem_id=fid,
+            ts=when,
+            text=text,
+            evidence=evidence or [],
+            supersedes=supersedes or [],
+        )
         self._store.insert(
             id=fid,
             kind="fact",
             text=text,
-            created_at=_now(),
+            created_at=when,
             metadata={"evidence": evidence or [], "supersedes": supersedes or []},
             embedding=self._embedder(text),
         )
         if supersedes:
-            self._store.mark_superseded(supersedes, by=fid)
+            self._store.mark_superseded(supersedes, by=fid, when=when)
         return fid
 
     def assert_preference(self, text: str, *, strength: float = 1.0) -> str:
         pid = _new_id("pr")
+        when = _now()
+        self._emit(
+            EventOp.ASSERT_PREF,
+            mem_id=pid,
+            ts=when,
+            text=text,
+            strength=strength,
+        )
         self._store.insert(
             id=pid,
             kind="preference",
             text=text,
-            created_at=_now(),
+            created_at=when,
             metadata={"strength": strength},
             embedding=self._embedder(text),
         )
@@ -127,13 +196,37 @@ class Memory:
     # ----------------------------------------------------------------- forget
 
     def forget(self, id: str) -> None:
-        self._store.delete(id)
+        when = _now()
+        self._emit(EventOp.FORGET, mem_id=id, ts=when)
+        self._store.tombstone(id, when=when)
 
     def expire_before(self, when: str | datetime) -> int:
-        return self._store.expire_before(_parse_when(when))
+        cutoff = _parse_when(when)
+        ids = self._store.list_active_before(cutoff)
+        for mem_id in ids:
+            self.forget(mem_id)
+        return len(ids)
 
     def compact(self) -> CompactReport:
         return self._store.compact()
+
+    # ----------------------------------------------------------------- replay
+
+    def replay(self) -> int:
+        """Wipe the cache and rebuild it from `events.jsonl`. Returns event count.
+
+        Idempotent. Used after embedder upgrades, after corrupting the cache,
+        or after merging events from another device.
+        """
+        if self._events is None:
+            raise RuntimeError("replay() requires an on-disk store")
+
+        self._store.wipe()
+        n = 0
+        for event in self._events.read_all():
+            self._apply(event)
+            n += 1
+        return n
 
     # ---------------------------------------------------------------- inspect
 
@@ -144,6 +237,62 @@ class Memory:
 
     def close(self) -> None:
         self._store.close()
+
+    # ---------------------------------------------------------------- internal
+
+    def _emit(self, op: EventOp, *, mem_id: str, ts: datetime, **fields: Any) -> None:
+        if self._events is None:
+            return
+        self._events.append(
+            Event(
+                id=new_event_id(),
+                ts=ts,
+                device=self._device_id,
+                op=op,
+                mem_id=mem_id,
+                **fields,
+            )
+        )
+
+    def _apply(self, event: Event) -> None:
+        """Apply an event to the cache only (no event emission). Used by replay."""
+        if event.op == EventOp.OBSERVE:
+            self._store.insert(
+                id=event.mem_id,
+                kind="episode",
+                text=event.text or "",
+                created_at=event.ts,
+                metadata=event.metadata,
+                embedding=self._embedder(event.text or ""),
+                extras={"actors": event.actors},
+            )
+        elif event.op == EventOp.ASSERT_FACT:
+            self._store.insert(
+                id=event.mem_id,
+                kind="fact",
+                text=event.text or "",
+                created_at=event.ts,
+                metadata={
+                    "evidence": event.evidence,
+                    "supersedes": event.supersedes,
+                },
+                embedding=self._embedder(event.text or ""),
+            )
+            if event.supersedes:
+                self._store.mark_superseded(
+                    event.supersedes, by=event.mem_id, when=event.ts
+                )
+        elif event.op == EventOp.ASSERT_PREF:
+            self._store.insert(
+                id=event.mem_id,
+                kind="preference",
+                text=event.text or "",
+                created_at=event.ts,
+                metadata={"strength": event.strength or 1.0},
+                embedding=self._embedder(event.text or ""),
+            )
+        elif event.op == EventOp.FORGET:
+            self._store.tombstone(event.mem_id, when=event.ts)
 
 
 # ---------------------------------------------------------------------- utils
