@@ -64,9 +64,10 @@ class Memory:
             meta_path = store_dir / "meta.json"
             meta_was_new = not meta_path.exists()
             self._meta = load_or_init_meta(meta_path, embedder_name=embedder_name)
-            self._events = EventLog(store_dir / "events.jsonl")
             self._device_id = device_id or load_or_init_device_id()
+            self._events = EventLog(store_dir / "events", self._device_id)
 
+            self._migrate_legacy_single_file_log()
             if meta_was_new and self._events.count() == 0:
                 self._bootstrap_events_from_cache()
 
@@ -79,8 +80,12 @@ class Memory:
         return self._device_id
 
     @property
-    def events_path(self) -> Path | None:
-        return self._events.path if self._events else None
+    def events_dir(self) -> Path | None:
+        return self._events.dir if self._events else None
+
+    @property
+    def events_own_file(self) -> Path | None:
+        return self._events.own_file if self._events else None
 
     # ------------------------------------------------------------------ write
 
@@ -256,6 +261,35 @@ class Memory:
                 **fields,
             )
         )
+
+    def _migrate_legacy_single_file_log(self) -> int:
+        """Split a legacy `events.jsonl` (slice-1 layout) into per-device files.
+
+        Slice 1.6 introduced per-device event files; an older single-file
+        log is split by the `device` field on each event so writes from
+        each origin device land in `events/<device>.jsonl`.
+        """
+        if self._events is None:
+            return 0
+        legacy = Path(self._path_str).parent / "events.jsonl"
+        if not legacy.exists():
+            return 0
+
+        events_dir = self._events.dir
+        events_dir.mkdir(parents=True, exist_ok=True)
+        moved = 0
+        with legacy.open(encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                ev = Event.model_validate_json(line)
+                target = events_dir / f"{ev.device}.jsonl"
+                with target.open("a", encoding="utf-8") as out:
+                    out.write(line + "\n")
+                moved += 1
+        legacy.unlink()
+        return moved
 
     def _bootstrap_events_from_cache(self) -> int:
         """Generate events for rows already in the cache.

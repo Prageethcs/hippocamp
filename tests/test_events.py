@@ -1,8 +1,9 @@
-"""Tests for the event-log architecture: events.jsonl, meta.json, and replay.
+"""Tests for the event-log architecture: events/, meta.json, and replay.
 
 These tests prove the central invariant of the v0.3.0 architecture:
-the SQLite cache is fully derivable from the event log. If you delete
-the cache and call `replay()`, you get back the exact same active state.
+the SQLite cache is fully derivable from the per-device event logs. If
+you delete the cache and call `replay()`, you get back the exact same
+active state.
 """
 
 from __future__ import annotations
@@ -14,19 +15,19 @@ import pytest
 
 from hippocamp import Memory
 from hippocamp.embedders import HashEmbedder
-from hippocamp.events import EventLog, EventOp
+from hippocamp.events import Event, EventLog, EventOp
 
 
-def _new_memory(tmp_path: Path) -> Memory:
+def _new_memory(tmp_path: Path, device_id: str = "dev_test") -> Memory:
     return Memory(
         path=str(tmp_path / "store.db"),
         embedder=HashEmbedder(),
-        device_id="dev_test",
+        device_id=device_id,
     )
 
 
 def _active_state(mem: Memory) -> list[tuple]:
-    """Snapshot of active rows in the cache, for equivalence comparisons."""
+    """Snapshot of cache rows, used for equivalence comparisons."""
     rows = mem._store._conn.execute(
         "SELECT id, kind, text, created_at, last_seen_at, superseded_at, "
         "salience, metadata "
@@ -39,7 +40,7 @@ def _active_state(mem: Memory) -> list[tuple]:
 
 
 def test_meta_json_created_on_first_open(tmp_path):
-    mem = _new_memory(tmp_path)
+    _new_memory(tmp_path)
     meta_path = tmp_path / "meta.json"
     assert meta_path.exists()
     data = json.loads(meta_path.read_text())
@@ -49,9 +50,8 @@ def test_meta_json_created_on_first_open(tmp_path):
 
 
 def test_embedder_mismatch_is_rejected(tmp_path):
-    _new_memory(tmp_path)  # creates meta.json with hash-32
+    _new_memory(tmp_path)
 
-    # Try to open the same store with a different embedder
     class FakeOtherEmbedder:
         name = "fake-other"
         def __call__(self, text):
@@ -65,22 +65,66 @@ def test_embedder_mismatch_is_rejected(tmp_path):
         )
 
 
-# --------------------------------------------------------------- events.jsonl
+# --------------------------------------------------- per-device event files
 
 
-def test_observe_appends_event(tmp_path):
-    mem = _new_memory(tmp_path)
+def test_observe_writes_only_to_own_device_file(tmp_path):
+    mem = _new_memory(tmp_path, device_id="dev_test")
     ep_id = mem.observe("user wants to deploy to GCP", actors=["user"])
 
-    log = EventLog(tmp_path / "events.jsonl")
+    own_file = tmp_path / "events" / "dev_test.jsonl"
+    assert own_file.exists()
+
+    log = EventLog(tmp_path / "events", "dev_test")
     events = list(log.read_all())
     assert len(events) == 1
-    e = events[0]
-    assert e.op == EventOp.OBSERVE
-    assert e.mem_id == ep_id
-    assert e.text == "user wants to deploy to GCP"
-    assert e.actors == ["user"]
-    assert e.device == "dev_test"
+    assert events[0].mem_id == ep_id
+    assert events[0].device == "dev_test"
+
+
+def test_each_device_writes_to_separate_file(tmp_path):
+    """The clean architectural invariant: one writer per file, ever."""
+    mem_a = _new_memory(tmp_path, device_id="laptop")
+    mem_a.observe("event from laptop")
+    mem_a.close()
+
+    mem_b = _new_memory(tmp_path, device_id="desktop")
+    mem_b.observe("event from desktop")
+    mem_b.close()
+
+    events_dir = tmp_path / "events"
+    files = sorted(p.name for p in events_dir.glob("*.jsonl"))
+    assert files == ["desktop.jsonl", "laptop.jsonl"]
+
+
+def test_read_all_merges_events_across_devices_in_time_order(tmp_path):
+    # Pre-populate two device files manually (simulating a sync'd state)
+    events_dir = tmp_path / "events"
+    events_dir.mkdir(parents=True)
+    EventLog(events_dir, "laptop").append(
+        Event(
+            id="ev_aaaaaaaaaaaaaaaa",
+            ts="2026-04-01T00:00:00+00:00",
+            device="laptop",
+            op=EventOp.OBSERVE,
+            mem_id="ep_lap1",
+            text="from laptop early",
+        )
+    )
+    EventLog(events_dir, "desktop").append(
+        Event(
+            id="ev_bbbbbbbbbbbbbbbb",
+            ts="2026-04-01T00:00:01+00:00",
+            device="desktop",
+            op=EventOp.OBSERVE,
+            mem_id="ep_des1",
+            text="from desktop later",
+        )
+    )
+
+    log = EventLog(events_dir, "laptop")
+    ordered = [e.mem_id for e in log.read_all()]
+    assert ordered == ["ep_lap1", "ep_des1"]
 
 
 def test_assert_fact_appends_event_with_supersedes(tmp_path):
@@ -88,7 +132,8 @@ def test_assert_fact_appends_event_with_supersedes(tmp_path):
     old = mem.assert_fact("project uses Python 3.12")
     new = mem.assert_fact("project uses Python 3.13", supersedes=[old])
 
-    events = list(EventLog(tmp_path / "events.jsonl").read_all())
+    log = EventLog(tmp_path / "events", "dev_test")
+    events = list(log.read_all())
     assert len(events) == 2
     assert events[1].op == EventOp.ASSERT_FACT
     assert events[1].mem_id == new
@@ -99,7 +144,8 @@ def test_assert_preference_appends_event(tmp_path):
     mem = _new_memory(tmp_path)
     pid = mem.assert_preference("prefers terse replies", strength=0.9)
 
-    events = list(EventLog(tmp_path / "events.jsonl").read_all())
+    log = EventLog(tmp_path / "events", "dev_test")
+    events = list(log.read_all())
     assert len(events) == 1
     assert events[0].op == EventOp.ASSERT_PREF
     assert events[0].mem_id == pid
@@ -111,13 +157,12 @@ def test_forget_appends_event_and_tombstones(tmp_path):
     eid = mem.observe("temporary thought")
     mem.forget(eid)
 
-    events = list(EventLog(tmp_path / "events.jsonl").read_all())
+    log = EventLog(tmp_path / "events", "dev_test")
+    events = list(log.read_all())
     assert len(events) == 2
     assert events[1].op == EventOp.FORGET
     assert events[1].mem_id == eid
 
-    # Forget should tombstone, not hard-delete; the row still exists with
-    # superseded_at set.
     row = mem._store._conn.execute(
         "SELECT superseded_at FROM memories WHERE id = ?", (eid,)
     ).fetchone()
@@ -125,11 +170,10 @@ def test_forget_appends_event_and_tombstones(tmp_path):
     assert row[0] is not None
 
 
-# ---------------------------------------------------- replay round-trip
+# ----------------------------------------------------- replay round-trip
 
 
 def test_replay_rebuilds_identical_cache(tmp_path):
-    """The central invariant: cache is fully derivable from the event log."""
     mem = _new_memory(tmp_path)
 
     ep_id = mem.observe("user asked about deploying to GCP", actors=["user"])
@@ -141,7 +185,6 @@ def test_replay_rebuilds_identical_cache(tmp_path):
 
     state_before = _active_state(mem)
 
-    # Wipe the cache; events.jsonl + meta.json remain on disk
     mem.close()
     (tmp_path / "store.db").unlink()
     for sidecar in ("store.db-shm", "store.db-wal"):
@@ -149,13 +192,51 @@ def test_replay_rebuilds_identical_cache(tmp_path):
         if p.exists():
             p.unlink()
 
-    # Reopen and replay
     mem2 = _new_memory(tmp_path)
     n = mem2.replay()
     assert n == 6, f"expected 6 events, got {n}"
+    assert _active_state(mem2) == state_before
 
-    state_after = _active_state(mem2)
-    assert state_before == state_after, "replay produced a different cache"
+
+def test_replay_picks_up_a_newly_synced_device_file(tmp_path):
+    """Simulates: a peer device's events file lands in events/ via sync.
+
+    After replay, this device's cache should include the peer's events.
+    """
+    # This device writes some events
+    mem = _new_memory(tmp_path, device_id="laptop")
+    laptop_ep = mem.observe("event from laptop")
+    mem.close()
+
+    # A peer's events file is dropped into events/ (e.g. by Dropbox)
+    peer_log = EventLog(tmp_path / "events", "desktop")
+    peer_log.append(
+        Event(
+            id="ev_peerpeerpeerpeer",
+            ts="2026-05-01T00:00:00+00:00",
+            device="desktop",
+            op=EventOp.OBSERVE,
+            mem_id="ep_desk1",
+            text="event from peer desktop",
+        )
+    )
+
+    # Wipe local cache and replay; we should see both events
+    (tmp_path / "store.db").unlink()
+    for sidecar in ("store.db-shm", "store.db-wal"):
+        p = tmp_path / sidecar
+        if p.exists():
+            p.unlink()
+
+    mem2 = _new_memory(tmp_path, device_id="laptop")
+    n = mem2.replay()
+    assert n == 2
+
+    rows = mem2._store._conn.execute(
+        "SELECT id FROM memories ORDER BY id"
+    ).fetchall()
+    ids = {r[0] for r in rows}
+    assert ids == {laptop_ep, "ep_desk1"}
 
 
 def test_replay_preserves_inspect_counts(tmp_path):
@@ -206,25 +287,16 @@ def test_replay_preserves_recall_ranking(tmp_path):
     hits_after = mem2.recall("cat", limit=3)
     ids_after = [h.id for h in hits_after]
 
-    assert ids_before == ids_after, (
-        f"ranking differs after replay: {ids_before} != {ids_after}"
-    )
+    assert ids_before == ids_after
 
 
 # --------------------------------------------------- migration / bootstrap
 
 
 def test_bootstrap_creates_events_from_existing_cache(tmp_path):
-    """Opening a pre-v0.3 store (cache rows, no events) bootstraps the log.
-
-    This is the migration path for users upgrading from v0.1. Without
-    it, calling replay() on their existing data would wipe it.
-    """
-    # Simulate a pre-v0.3 store: write rows directly to the cache, no
-    # events.jsonl, no meta.json.
     db_path = tmp_path / "store.db"
-    pre_mem = Memory(path=":memory:", embedder=HashEmbedder())  # to populate
-    # Write directly via Store to skip event emission, then move to disk:
+
+    # Simulate a pre-v0.3 store: rows in cache, no events, no meta
     from hippocamp.store import Store
     s = Store(str(db_path))
     s._conn.execute(
@@ -241,16 +313,13 @@ def test_bootstrap_creates_events_from_existing_cache(tmp_path):
     )
     s.close()
 
-    # Now open with the new architecture
     mem = Memory(path=str(db_path), embedder=HashEmbedder(), device_id="dev_test")
 
-    # events.jsonl should now exist with bootstrapped events
-    events = list(EventLog(tmp_path / "events.jsonl").read_all())
-    assert len(events) == 2
-    ids = {e.mem_id for e in events}
-    assert ids == {"ep_legacy", "fa_legacy"}
+    own_file = tmp_path / "events" / "dev_test.jsonl"
+    assert own_file.exists()
+    events = list(EventLog(tmp_path / "events", "dev_test").read_all())
+    assert {e.mem_id for e in events} == {"ep_legacy", "fa_legacy"}
 
-    # And replay should now be safe — it should rebuild what was there.
     n = mem.replay()
     assert n == 2
     rows = mem._store._conn.execute(
@@ -260,29 +329,56 @@ def test_bootstrap_creates_events_from_existing_cache(tmp_path):
 
 
 def test_bootstrap_does_not_run_on_subsequent_opens(tmp_path):
-    """Bootstrap should only fire on the very first v0.3+ open."""
-    # First open (creates meta.json, no rows so no events)
-    mem1 = Memory(path=str(tmp_path / "store.db"), embedder=HashEmbedder(), device_id="d1")
+    mem1 = _new_memory(tmp_path)
     mem1.observe("a thing")
     mem1.close()
 
-    events_before = (tmp_path / "events.jsonl").read_text()
+    own_file = tmp_path / "events" / "dev_test.jsonl"
+    before = own_file.read_text()
 
-    # Second open should not re-bootstrap
-    mem2 = Memory(path=str(tmp_path / "store.db"), embedder=HashEmbedder(), device_id="d1")
-    events_after = (tmp_path / "events.jsonl").read_text()
-    assert events_before == events_after
+    _new_memory(tmp_path)
+    after = own_file.read_text()
+    assert before == after
+
+
+def test_legacy_single_file_log_is_split_by_device(tmp_path):
+    """If a slice-1 events.jsonl exists, it gets split into events/<device>.jsonl."""
+    legacy = tmp_path / "events.jsonl"
+    legacy.write_text(
+        Event(
+            id="ev_aaaaaaaaaaaaaaaa",
+            ts="2026-04-01T00:00:00+00:00",
+            device="laptop",
+            op=EventOp.OBSERVE,
+            mem_id="ep_lap1",
+            text="laptop event",
+        ).model_dump_json() + "\n" +
+        Event(
+            id="ev_bbbbbbbbbbbbbbbb",
+            ts="2026-04-02T00:00:00+00:00",
+            device="desktop",
+            op=EventOp.OBSERVE,
+            mem_id="ep_des1",
+            text="desktop event",
+        ).model_dump_json() + "\n"
+    )
+
+    Memory(path=str(tmp_path / "store.db"), embedder=HashEmbedder(), device_id="laptop")
+
+    # Legacy file gone, per-device files present
+    assert not legacy.exists()
+    assert (tmp_path / "events" / "laptop.jsonl").exists()
+    assert (tmp_path / "events" / "desktop.jsonl").exists()
 
 
 # ----------------------------------------------------- in-memory mode
 
 
 def test_in_memory_does_not_create_events_log(tmp_path, monkeypatch):
-    # Force HOME to tmp_path so device.json (if created) lands in tmp
     monkeypatch.setenv("HOME", str(tmp_path))
     mem = Memory(path=":memory:", embedder=HashEmbedder())
     mem.observe("ephemeral")
-    assert mem.events_path is None
+    assert mem.events_dir is None
     assert mem.meta is None
     with pytest.raises(RuntimeError, match="requires an on-disk store"):
         mem.replay()
