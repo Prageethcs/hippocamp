@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from hippocamp.memory import Memory
 
@@ -26,20 +26,13 @@ DEFAULT_PATH = Path(
 )
 
 
-def main() -> None:
-    DEFAULT_PATH.parent.mkdir(parents=True, exist_ok=True)
-    mem = Memory(path=str(DEFAULT_PATH))
+def build_tools(mem: Memory) -> dict[str, Callable[..., dict[str, Any]]]:
+    """Build the MCP tool callables bound to a Memory instance.
 
-    try:
-        from mcp.server.fastmcp import FastMCP
-    except ImportError as e:
-        raise SystemExit(
-            "hippocamp-mcp requires the 'mcp' extra: pip install 'hippocamp[mcp]'"
-        ) from e
+    Exposed at module level so tests can drive the same handlers the
+    MCP host calls, without spinning up a real MCP transport.
+    """
 
-    server = FastMCP("hippocamp")
-
-    @server.tool()
     def recall_memory(
         query: str | None = None,
         kinds: list[str] | None = None,
@@ -51,7 +44,6 @@ def main() -> None:
         hits = mem.recall(query, kinds=kinds, limit=limit)
         return {"results": [h.model_dump() for h in hits]}
 
-    @server.tool()
     def update_memory(
         action: str,
         text: str | None = None,
@@ -80,6 +72,23 @@ def main() -> None:
 
         return {"ok": True, "id": mid, "action": action}
 
+    return {"recall_memory": recall_memory, "update_memory": update_memory}
+
+
+def main() -> None:
+    DEFAULT_PATH.parent.mkdir(parents=True, exist_ok=True)
+    mem = Memory(path=str(DEFAULT_PATH))
+
+    try:
+        from mcp.server.fastmcp import FastMCP
+    except ImportError as e:
+        raise SystemExit(
+            "hippocamp-mcp requires the 'mcp' extra: pip install 'hippocamp[mcp]'"
+        ) from e
+
+    server = FastMCP("hippocamp")
+    for name, fn in build_tools(mem).items():
+        server.tool(name=name)(fn)
     server.run()
 
 
