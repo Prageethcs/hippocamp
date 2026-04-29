@@ -43,13 +43,17 @@ def _open_memory(path_arg: str | None) -> Memory:
 def _cmd_setup(args: argparse.Namespace) -> int:
     fn = SETUP_FUNCS[args.host]
     try:
-        result = fn()
+        result = fn(path=args.path, cache_dir=args.cache_dir)
     except RuntimeError as e:
         print(f"hippocamp: {e}", file=sys.stderr)
         return 1
 
     where = result.config_path or "(via host CLI)"
     print(f"hippocamp setup {args.host}: {result.action} at {where}")
+    if args.path:
+        print(f"  store dir: {args.path}")
+    if args.cache_dir:
+        print(f"  cache dir: {args.cache_dir}")
     if result.notes:
         print(result.notes)
     return 0
@@ -80,7 +84,7 @@ def _cmd_replay(args: argparse.Namespace) -> int:
         print("hippocamp: cannot replay an in-memory store", file=sys.stderr)
         return 1
     n = mem.replay()
-    print(f"replayed {n} events into {mem._path_str}")
+    print(f"replayed {n} events into {mem.cache_path}")
     return 0
 
 
@@ -158,10 +162,11 @@ def _cmd_sync_status(args: argparse.Namespace) -> int:
         print("hippocamp: in-memory store; no sync state")
         return 0
 
-    print(f"store:        {mem._path_str}")
+    print(f"store dir:    {mem.store_dir}")
+    print(f"events dir:   {mem.events_dir}")
+    print(f"cache path:   {mem.cache_path}")
     print(f"device id:    {mem.device_id}")
     print(f"embedder:     {mem.meta.embedder if mem.meta else '(none)'}")
-    print(f"events dir:   {mem.events_dir}")
 
     files = sorted(mem.events_dir.glob("*.jsonl")) if mem.events_dir.exists() else []
     if not files:
@@ -207,6 +212,18 @@ def main(argv: list[str] | None = None) -> int:
 
     p_setup = sub.add_parser("setup", help="Wire Hippocamp into an AI host.")
     p_setup.add_argument("host", choices=HOSTS, help="Which host to configure.")
+    p_setup.add_argument(
+        "--path",
+        default=None,
+        help="Store directory for events + meta (e.g. ~/Dropbox/Hippocamp). "
+        "Passed to the host as HIPPOCAMP_PATH.",
+    )
+    p_setup.add_argument(
+        "--cache-dir",
+        default=None,
+        help="Local-only cache base dir (defaults to OS cache dir). "
+        "Passed to the host as HIPPOCAMP_CACHE_DIR.",
+    )
     p_setup.set_defaults(func=_cmd_setup)
 
     p_inspect = sub.add_parser("inspect", help="Show memory contents.")

@@ -113,7 +113,23 @@ def _add_mcp_entry(
 # ------------------------------------------------------------------ per-host
 
 
-def setup_claude(*, command: str | None = None) -> SetupResult:
+def _build_env(
+    path: str | None, cache_dir: str | None
+) -> dict[str, str] | None:
+    env: dict[str, str] = {}
+    if path:
+        env["HIPPOCAMP_PATH"] = path
+    if cache_dir:
+        env["HIPPOCAMP_CACHE_DIR"] = cache_dir
+    return env or None
+
+
+def setup_claude(
+    *,
+    command: str | None = None,
+    path: str | None = None,
+    cache_dir: str | None = None,
+) -> SetupResult:
     """Register Hippocamp with Claude Code via `claude mcp add`.
 
     Uses the official `claude` CLI, which handles `~/.claude.json`
@@ -127,11 +143,14 @@ def setup_claude(*, command: str | None = None) -> SetupResult:
 
     cmd = command or find_hippocamp_mcp()
 
-    proc = subprocess.run(
-        [cli, "mcp", "add", "-s", "user", "hippocamp", "--", cmd],
-        capture_output=True,
-        text=True,
-    )
+    args = [cli, "mcp", "add", "-s", "user"]
+    env = _build_env(path, cache_dir)
+    if env:
+        for key, value in env.items():
+            args.extend(["-e", f"{key}={value}"])
+    args.extend(["hippocamp", "--", cmd])
+
+    proc = subprocess.run(args, capture_output=True, text=True)
     if proc.returncode != 0:
         stderr = proc.stderr.strip()
         if "already exists" in stderr.lower() or "already configured" in stderr.lower():
@@ -149,11 +168,13 @@ def setup_claude(*, command: str | None = None) -> SetupResult:
 def setup_claude_desktop(
     *,
     command: str | None = None,
+    path: str | None = None,
+    cache_dir: str | None = None,
     config_path: Path | None = None,
 ) -> SetupResult:
     cmd = command or find_hippocamp_mcp()
     cfg = config_path or _claude_desktop_config_path()
-    res = _add_mcp_entry(cfg, "hippocamp", cmd)
+    res = _add_mcp_entry(cfg, "hippocamp", cmd, env=_build_env(path, cache_dir))
     res.host = "claude-desktop"
     res.notes = "Restart Claude Desktop to pick up the change."
     return res
@@ -162,11 +183,13 @@ def setup_claude_desktop(
 def setup_cursor(
     *,
     command: str | None = None,
+    path: str | None = None,
+    cache_dir: str | None = None,
     config_path: Path | None = None,
 ) -> SetupResult:
     cmd = command or find_hippocamp_mcp()
     cfg = config_path or _cursor_config_path()
-    res = _add_mcp_entry(cfg, "hippocamp", cmd)
+    res = _add_mcp_entry(cfg, "hippocamp", cmd, env=_build_env(path, cache_dir))
     res.host = "cursor"
     res.notes = "Restart Cursor or reload the MCP server list."
     return res
@@ -175,11 +198,13 @@ def setup_cursor(
 def setup_gemini_cli(
     *,
     command: str | None = None,
+    path: str | None = None,
+    cache_dir: str | None = None,
     config_path: Path | None = None,
 ) -> SetupResult:
     cmd = command or find_hippocamp_mcp()
     cfg = config_path or _gemini_cli_config_path()
-    res = _add_mcp_entry(cfg, "hippocamp", cmd)
+    res = _add_mcp_entry(cfg, "hippocamp", cmd, env=_build_env(path, cache_dir))
     res.host = "gemini-cli"
     res.notes = "Restart gemini-cli to pick up the change."
     return res

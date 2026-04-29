@@ -1,13 +1,21 @@
 """Hippocamp's public Memory class — the single entry point for the library.
 
-Memory mutations (observe / assert_fact / assert_preference / forget) write
-to two places: the append-only event log (`events.jsonl`) and the SQLite
-cache (`store.db`). The event log is the source of truth; the cache is a
-derived index that can be rebuilt by `replay()`.
+A Hippocamp store has two layers:
+
+* **Store directory** (designed to be cloud-synced): contains `meta.json`
+  and `events/<device_id>.jsonl` files — the source of truth.
+* **Cache** (always local): a SQLite file that's a fast index over the
+  events. Lives in the OS cache directory by default, keyed by
+  `meta.store_id` so multiple stores get isolated caches automatically.
+
+The cache can be wiped at any time and rebuilt via `replay()`. This is
+why cloud sync is safe — no concurrent-write risk on derived state.
 """
 
 from __future__ import annotations
 
+import os
+import platform
 import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -20,6 +28,18 @@ from hippocamp.store import Store
 from hippocamp.types import CompactReport, Inventory, RecallResult
 
 Kind = Literal["episode", "fact", "preference", "reflection"]
+
+
+def _default_cache_dir() -> Path:
+    """OS-standard base directory for local-only caches."""
+    home = Path.home()
+    sysname = platform.system()
+    if sysname == "Darwin":
+        return home / "Library" / "Caches" / "hippocamp"
+    if sysname == "Windows":
+        local = os.environ.get("LOCALAPPDATA")
+        return Path(local) / "hippocamp" if local else home / "AppData" / "Local" / "hippocamp"
+    return home / ".cache" / "hippocamp"
 
 
 class Memory:
@@ -40,10 +60,8 @@ class Memory:
         embedder: Callable[[str], list[float]] | None = None,
         llm: Any | None = None,
         device_id: str | None = None,
+        cache_dir: str | Path | None = None,
     ) -> None:
-        self._path_str = str(path)
-        self._store = Store(path)
-
         if embedder is None:
             from hippocamp.embedders import default_embedder
 
@@ -53,23 +71,77 @@ class Memory:
 
         self._meta: StoreMeta | None = None
         self._events: EventLog | None = None
+        self._store_dir: Path | None = None
+        self._cache_path: Path | None = None
         self._device_id: str
 
-        if self._path_str == ":memory:":
+        if str(path) == ":memory:":
+            self._store = Store(":memory:")
             self._device_id = device_id or "in-memory"
-        else:
-            store_dir = Path(self._path_str).parent
-            store_dir.mkdir(parents=True, exist_ok=True)
-            embedder_name = getattr(embedder, "name", type(embedder).__name__)
-            meta_path = store_dir / "meta.json"
-            meta_was_new = not meta_path.exists()
-            self._meta = load_or_init_meta(meta_path, embedder_name=embedder_name)
-            self._device_id = device_id or load_or_init_device_id()
-            self._events = EventLog(store_dir / "events", self._device_id)
+            return
 
-            self._migrate_legacy_single_file_log()
-            if meta_was_new and self._events.count() == 0:
-                self._bootstrap_events_from_cache()
+        # Resolve store dir and a candidate legacy cache path.
+        raw = Path(path).expanduser()
+        if raw.suffix == ".db" or (raw.exists() and raw.is_file()):
+            # Legacy / explicit-file form: `path` points at store.db itself.
+            store_dir = raw.parent
+            legacy_cache_path: Path | None = raw
+        else:
+            # New form: `path` is the store directory.
+            store_dir = raw
+            legacy_cache_path = None
+
+        store_dir.mkdir(parents=True, exist_ok=True)
+        self._store_dir = store_dir
+
+        embedder_name = getattr(embedder, "name", type(embedder).__name__)
+        meta_path = store_dir / "meta.json"
+        meta_was_new = not meta_path.exists()
+        self._meta = load_or_init_meta(meta_path, embedder_name=embedder_name)
+        self._device_id = device_id or load_or_init_device_id()
+
+        # Resolve cache path: explicit arg > env > legacy file > OS default.
+        self._cache_path = self._resolve_cache_path(cache_dir, legacy_cache_path)
+        self._cache_path.parent.mkdir(parents=True, exist_ok=True)
+        self._store = Store(str(self._cache_path))
+
+        self._events = EventLog(store_dir / "events", self._device_id)
+        self._migrate_legacy_single_file_log()
+        if meta_was_new and self._events.count() == 0:
+            self._bootstrap_events_from_cache()
+
+        # If we're opening a fresh local cache against an already-populated
+        # event log (e.g. another device just sync'd events into the cloud
+        # dir), rebuild the cache automatically. Conservative: only when the
+        # cache is fully empty and events exist.
+        if self._events.count() > 0 and self._cache_row_count() == 0:
+            self.replay()
+
+    def _resolve_cache_path(
+        self,
+        explicit_cache_dir: str | Path | None,
+        legacy_cache_path: Path | None,
+    ) -> Path:
+        """Decide where store.db lives. Priority: arg > env > legacy > default."""
+        assert self._meta is not None  # narrowed by caller
+
+        if explicit_cache_dir is not None:
+            base = Path(explicit_cache_dir).expanduser()
+            return base / self._meta.store_id / "store.db"
+
+        env = os.environ.get("HIPPOCAMP_CACHE_DIR")
+        if env:
+            return Path(env).expanduser() / self._meta.store_id / "store.db"
+
+        if legacy_cache_path is not None:
+            return legacy_cache_path
+
+        return _default_cache_dir() / self._meta.store_id / "store.db"
+
+    def _cache_row_count(self) -> int:
+        return self._store._conn.execute(
+            "SELECT COUNT(*) FROM memories"
+        ).fetchone()[0]
 
     @property
     def meta(self) -> StoreMeta | None:
@@ -78,6 +150,16 @@ class Memory:
     @property
     def device_id(self) -> str:
         return self._device_id
+
+    @property
+    def store_dir(self) -> Path | None:
+        """The cloud-syncable directory holding meta.json + events/."""
+        return self._store_dir
+
+    @property
+    def cache_path(self) -> Path | None:
+        """Path to the local SQLite cache (None for in-memory stores)."""
+        return self._cache_path
 
     @property
     def events_dir(self) -> Path | None:
@@ -269,9 +351,9 @@ class Memory:
         log is split by the `device` field on each event so writes from
         each origin device land in `events/<device>.jsonl`.
         """
-        if self._events is None:
+        if self._events is None or self._store_dir is None:
             return 0
-        legacy = Path(self._path_str).parent / "events.jsonl"
+        legacy = self._store_dir / "events.jsonl"
         if not legacy.exists():
             return 0
 

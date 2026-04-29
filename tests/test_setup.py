@@ -109,3 +109,26 @@ def test_setup_creates_parent_dirs(tmp_path):
     cfg = tmp_path / "deeply" / "nested" / "path" / "config.json"
     setup_cursor(command="/x/hippocamp-mcp", config_path=cfg)
     assert cfg.exists()
+
+
+def test_setup_passes_path_and_cache_dir_via_env(tmp_path):
+    """The cloud-sync setup: --path and --cache-dir become host env vars."""
+    cfg = tmp_path / "mcp.json"
+    setup_cursor(
+        command="/x/hippocamp-mcp",
+        path="/Users/me/Dropbox/Hippocamp",
+        cache_dir="/Users/me/.cache/hippocamp",
+        config_path=cfg,
+    )
+    data = _read(cfg)
+    entry = data["mcpServers"]["hippocamp"]
+    assert entry["env"]["HIPPOCAMP_PATH"] == "/Users/me/Dropbox/Hippocamp"
+    assert entry["env"]["HIPPOCAMP_CACHE_DIR"] == "/Users/me/.cache/hippocamp"
+
+
+def test_setup_without_path_omits_env_block(tmp_path):
+    """No --path/--cache-dir → no env block (inherit from parent shell)."""
+    cfg = tmp_path / "mcp.json"
+    setup_cursor(command="/x/hippocamp-mcp", config_path=cfg)
+    entry = _read(cfg)["mcpServers"]["hippocamp"]
+    assert "env" not in entry

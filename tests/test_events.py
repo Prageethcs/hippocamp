@@ -371,6 +371,95 @@ def test_legacy_single_file_log_is_split_by_device(tmp_path):
     assert (tmp_path / "events" / "desktop.jsonl").exists()
 
 
+# ----------------------------------------------- store dir vs cache split
+
+
+def test_path_as_directory_uses_separate_cache(tmp_path):
+    """Pointing `path` at a directory keeps store.db out of the synced dir."""
+    store_dir = tmp_path / "synced"
+    cache_dir = tmp_path / "cache"
+
+    mem = Memory(
+        path=str(store_dir),
+        embedder=HashEmbedder(),
+        device_id="dev_test",
+        cache_dir=str(cache_dir),
+    )
+    mem.observe("hello")
+
+    # Synced dir has meta + events, NOT store.db
+    assert (store_dir / "meta.json").exists()
+    assert (store_dir / "events" / "dev_test.jsonl").exists()
+    assert not (store_dir / "store.db").exists()
+
+    # Cache dir holds store.db, keyed by store_id
+    cache_files = list(cache_dir.rglob("store.db"))
+    assert len(cache_files) == 1
+    assert mem.meta.store_id in str(cache_files[0])
+
+
+def test_legacy_db_file_path_keeps_cache_in_place(tmp_path):
+    """Existing users with `path=.../store.db` keep store.db where it is."""
+    db = tmp_path / "store.db"
+
+    mem = Memory(
+        path=str(db),
+        embedder=HashEmbedder(),
+        device_id="dev_test",
+    )
+    mem.observe("legacy-style call")
+
+    # Cache is the file the user pointed at
+    assert mem.cache_path == db
+    assert db.exists()
+
+
+def test_cache_dir_env_var_overrides(tmp_path, monkeypatch):
+    store_dir = tmp_path / "store"
+    custom_cache = tmp_path / "envcache"
+    monkeypatch.setenv("HIPPOCAMP_CACHE_DIR", str(custom_cache))
+
+    mem = Memory(
+        path=str(store_dir),
+        embedder=HashEmbedder(),
+        device_id="dev_test",
+    )
+    mem.observe("env-driven cache")
+
+    assert custom_cache in mem.cache_path.parents
+    assert mem.meta.store_id in str(mem.cache_path)
+
+
+def test_cache_auto_replays_when_events_exist_but_cache_is_empty(tmp_path):
+    """The cloud-sync case: events landed via Dropbox; cache is fresh on this device."""
+    store_dir = tmp_path / "synced"
+    cache_dir_a = tmp_path / "cache-a"
+    cache_dir_b = tmp_path / "cache-b"
+
+    # Device A populates the (cloud-synced) store dir
+    mem_a = Memory(
+        path=str(store_dir),
+        embedder=HashEmbedder(),
+        device_id="laptop",
+        cache_dir=str(cache_dir_a),
+    )
+    mem_a.observe("event written by laptop")
+    mem_a.assert_fact("a fact")
+    mem_a.close()
+
+    # Device B opens the same synced store dir for the first time, with a
+    # different (empty) local cache. Auto-replay should populate the cache.
+    mem_b = Memory(
+        path=str(store_dir),
+        embedder=HashEmbedder(),
+        device_id="desktop",
+        cache_dir=str(cache_dir_b),
+    )
+    inv = mem_b.inspect()
+    assert inv.episodes == 1
+    assert inv.facts == 1
+
+
 # ----------------------------------------------------- in-memory mode
 
 

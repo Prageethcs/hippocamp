@@ -22,7 +22,7 @@ from typing import Any, Callable
 from hippocamp.memory import Memory
 
 DEFAULT_PATH = Path(
-    os.environ.get("HIPPOCAMP_PATH", str(Path.home() / ".hippocamp" / "store.db"))
+    os.environ.get("HIPPOCAMP_PATH", str(Path.home() / ".hippocamp"))
 )
 
 
@@ -123,7 +123,7 @@ def build_tools(mem: Memory) -> dict[str, Callable[..., dict[str, Any]]]:
 
 
 def main() -> None:
-    DEFAULT_PATH.parent.mkdir(parents=True, exist_ok=True)
+    DEFAULT_PATH.mkdir(parents=True, exist_ok=True)
     mem = Memory(path=str(DEFAULT_PATH))
 
     try:
