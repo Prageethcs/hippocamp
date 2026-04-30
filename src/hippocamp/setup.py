@@ -146,8 +146,11 @@ def setup_claude(
     args = [cli, "mcp", "add", "-s", "user"]
     env = _build_env(path, cache_dir)
     if env:
+        # `--env` is variadic in commander.js: a bare `-e KEY=VAL` would
+        # greedily consume the server-name positional. Use `--env=KEY=VAL`
+        # so the flag and value are a single argv token.
         for key, value in env.items():
-            args.extend(["-e", f"{key}={value}"])
+            args.append(f"--env={key}={value}")
     args.extend(["hippocamp", "--", cmd])
 
     proc = subprocess.run(args, capture_output=True, text=True)

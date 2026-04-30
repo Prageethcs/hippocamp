@@ -132,3 +132,45 @@ def test_setup_without_path_omits_env_block(tmp_path):
     setup_cursor(command="/x/hippocamp-mcp", config_path=cfg)
     entry = _read(cfg)["mcpServers"]["hippocamp"]
     assert "env" not in entry
+
+
+def test_setup_claude_uses_attached_env_form(monkeypatch):
+    """Regression: `claude mcp add` treats -e as variadic and would
+    otherwise consume the server-name positional. We must use the
+    attached-value form `--env=KEY=VAL` so the flag and value are a
+    single argv token.
+    """
+    from hippocamp import setup as setup_mod
+
+    captured: list[list[str]] = []
+
+    class FakeProc:
+        returncode = 0
+        stdout = "ok"
+        stderr = ""
+
+    def fake_which(name):
+        return "/usr/bin/claude" if name == "claude" else None
+
+    def fake_run(args, **kwargs):
+        captured.append(list(args))
+        return FakeProc()
+
+    monkeypatch.setattr(setup_mod.shutil, "which", fake_which)
+    monkeypatch.setattr(setup_mod.subprocess, "run", fake_run)
+    monkeypatch.setattr(setup_mod, "find_hippocamp_mcp", lambda: "/path/to/hippocamp-mcp")
+
+    setup_mod.setup_claude(path="/tmp/foo", cache_dir="/tmp/bar")
+
+    assert len(captured) == 1
+    args = captured[0]
+    # Bug repro: bare `-e` as a separate token would have shown up here
+    assert "-e" not in args, f"bare -e leaked into args: {args}"
+    # Both env vars present in the attached form
+    assert "--env=HIPPOCAMP_PATH=/tmp/foo" in args
+    assert "--env=HIPPOCAMP_CACHE_DIR=/tmp/bar" in args
+    # Server name and command still at the expected positions
+    assert "hippocamp" in args
+    assert "/path/to/hippocamp-mcp" in args
+    # The `--` separator before the command is preserved
+    assert args.index("--") < args.index("/path/to/hippocamp-mcp")
