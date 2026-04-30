@@ -58,14 +58,16 @@ That's the whole architecture. Each device writes only to its own events file (n
 hippocamp inspect                     # see what's stored, with why-traces
 hippocamp inspect --query "python"    # ranked recall
 
-hippocamp sync status                 # whose events live in this store
-hippocamp sync merge <path>           # merge a peer's events (USB, downloaded folder, ...)
-hippocamp sync push <peer>            # rsync your events file to a peer
-hippocamp sync pull <peer>            # rsync a peer's events here, then replay
+hippocamp status                      # what's stored, where, by which devices
 
-hippocamp replay                      # rebuild the local cache from events
+hippocamp sync                        # rebuild local cache from events
+hippocamp sync <local-path>           # merge events from a file/dir, then rebuild
+hippocamp sync <user@host[:path]>     # bidirectional rsync, then rebuild
+
 hippocamp reindex [--embedder NAME]   # recompute embeddings (after a model swap)
 ```
+
+`hippocamp sync` is one smart command — give it a local path (USB stick, downloaded folder, anything), an SSH peer (`user@desktop.local`), or no argument at all (just rebuild the cache from whatever Dropbox/iCloud/Syncthing has dropped into your events directory). Memory ends up consistent either way.
 
 ## Python library
 
@@ -99,7 +101,7 @@ The technical wedges:
 - **Why-trace** — every recall comes back with a breakdown of *why* the result ranked where it did (similarity + recency + kind-boost + salience).
 - **First-class forgetting** — supersedence, TTL, and tombstones are features, not afterthoughts.
 - **Conflict-free sync** — each device writes to `events/<device_id>.jsonl`, so no two machines ever touch the same file. Every cloud-sync service handles this safely by definition.
-- **Local-first** — the SQLite index lives on each machine; `events/` is the portable source of truth. Wipe the cache anytime; `hippocamp replay` rebuilds it.
+- **Local-first** — the SQLite index lives on each machine; `events/` is the portable source of truth. Wipe the cache anytime; `hippocamp sync` rebuilds it.
 
 ## Status
 
