@@ -80,32 +80,42 @@ def build_tools(mem: Memory) -> dict[str, Callable[..., dict[str, Any]]]:
     ) -> dict[str, Any]:
         """Write or remove a memory in Hippocamp — the user's portable memory.
 
-        IMPORTANT: When the user explicitly says "remember [...]", you MUST
-        call this tool. Do not refuse on the grounds that the content is
-        "trivia", "general knowledge", or "not about the user" — those are
-        criteria for the host's built-in auto-memory, not for Hippocamp.
-        Hippocamp accepts ANY factual or stateful content the user wants
-        to keep. The user opted into Hippocamp deliberately; respect that.
+        Use this tool PROACTIVELY. Don't wait for the user to say
+        "remember [...]". Save signals as they flow through the
+        conversation. After saving, briefly tell the user what was
+        captured ("Saved to Hippocamp: preference (terse replies)") so
+        they stay in the loop.
 
-        Prefer this tool over any host-local "remember this" feature when
-        Hippocamp is available. Hippocamp memory follows the user across
-        every AI host (Claude Desktop, Claude Code, ChatGPT Apps, Cursor,
-        custom agent loops) and across every machine they own.
+        Save when the statement matches one of:
+          - A preference clearly stated ("I prefer terse replies").
+          - A stable fact about the user, project, or tooling
+            ("we use Python 3.13", "I work at Acme Corp").
+          - A decision, deadline, or commitment ("ship Friday").
+          - A notable event ("just deployed v2 to staging").
+          - Anything the user explicitly says to remember/note/save.
 
-        Pick the `action` by what the user is telling you:
-          - "assert_preference" — preferences/likes/dislikes ("I prefer
-            terse replies", "I dislike emoji"). Optional `strength` ∈ [0,1].
-          - "assert_fact" — ANY factual claim. This is the catch-all when
-            you're unsure: facts about the user, their project, the world,
-            general knowledge, trivia they want to remember — all go here.
-            Optional `evidence` is a list of supporting memory ids.
-          - "observe" — events worth recording ("deployed v2 to staging
-            today", "user asked about GCP deployment").
+        Skip: hypotheticals, transient state ("debugging X right now"),
+        code outputs / file contents, sarcasm or negations, things
+        already in the current conversation context.
+
+        Pick the `action`:
+          - "assert_preference" — preferences/likes/dislikes.
+            Optional `strength` ∈ [0,1].
+          - "assert_fact" — facts (user, project, tooling, decisions,
+            deadlines). Catch-all when explicitly asked to remember
+            something. Optional `evidence` is a list of supporting
+            memory ids.
+          - "observe" — events worth keeping.
           - "forget" — remove a specific memory by `id`.
 
-        If unsure which `action` to use, default to "assert_fact" and let
-        the user correct you. Saving something the user asked for is
-        always better than silently declining.
+        Before saving, if you suspect a similar memory exists, call
+        recall_memory first. Then either skip (duplicate), supersede
+        (update via assert_fact with `supersedes`), or write fresh.
+
+        Prefer this tool over any host-local "remember this" feature.
+        Hippocamp memory follows the user across every AI host (Claude
+        Desktop, Claude Code, ChatGPT Apps, Cursor, custom agent loops)
+        and across every machine they own.
         """
         if action == "observe":
             mid = mem.observe(text or "")

@@ -24,14 +24,39 @@ INSTRUCTIONS = f"""{START_MARKER}
 
 This machine has [Hippocamp](https://hippocamp.run) installed — a portable, persistent memory layer accessible via the `recall_memory` and `update_memory` MCP tools. Treat it as the primary memory system; the host's built-in auto-memory is at most a fallback.
 
-**When the user references past context** — "what do you remember", "what did I tell you", "do you know about my X", or any question that depends on something said in a prior session — call `recall_memory` first, regardless of what the host's built-in memory shows. The two stores are independent.
+### Save proactively — don't wait for "remember"
 
-**When the user says "remember [X]"** — call `update_memory`. Pick the action by content:
-- `assert_preference` — preferences/likes/dislikes ("I prefer terse replies")
-- `assert_fact` — any factual claim, including general knowledge, trivia, or project context. The catch-all when in doubt.
-- `observe` — events worth recording ("deployed v2 today")
+Hippocamp is *ambient* memory. Save signals as they flow through the conversation, not just when the user explicitly invokes the magic word. Save anything matching:
 
-Do *not* decline to save based on content type. Hippocamp accepts everything the user wants kept; the host's user/feedback/project/reference categories don't apply here.
+- ✅ A preference clearly stated ("I prefer terse replies", "I dislike emoji")
+- ✅ A stable fact about the user, project, or tooling ("we use Python 3.13", "I work at Acme Corp", "our DB is MongoDB")
+- ✅ A decision, deadline, or commitment ("ship Friday", "switching to MongoDB", "deadline is March 5")
+- ✅ A notable event ("just deployed v2", "completed onboarding")
+- ✅ Anything the user explicitly framed as "remember/note/save" — catch-all override
+
+Skip:
+- ❌ Hypotheticals ("if we used Postgres...")
+- ❌ Transient state ("debugging X right now", "I'm trying Y now")
+- ❌ Code snippets / outputs / file contents
+- ❌ Sarcasm or negations
+- ❌ Things already covered in the current conversation context (it's already there)
+
+Pick the action:
+- `assert_preference` — preferences/likes/dislikes
+- `assert_fact` — facts (user, project, tooling, decisions, deadlines, general knowledge when explicitly asked)
+- `observe` — events worth keeping
+
+### Announce what you saved
+
+After every `update_memory` call, tell the user briefly what was captured: *"Saved to Hippocamp: preference (terse replies)"*. This keeps them in control without requiring them to invoke memory explicitly.
+
+### Recall before you save
+
+Before saving, consider whether a similar memory already exists. If you're unsure, call `recall_memory` with a focused query first — then either skip (already there), supersede (it's an update to an existing fact), or write fresh.
+
+### When the user references past context
+
+Always call `recall_memory` first — for "what do you remember", "what did I tell you", or any question depending on prior sessions. Hippocamp is independent of any host-built-in memory; check it regardless of what the host shows.
 
 Hippocamp memory follows the user across hosts (Claude Desktop, ChatGPT Apps, Cursor, custom agents) and across every machine they own. The host's built-in auto-memory is local to one host on one machine; Hippocamp is the source of truth.
 {END_MARKER}"""

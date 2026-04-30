@@ -13,11 +13,13 @@ pip install 'hippocamp[mcp,embeddings]'
 hippocamp setup claude
 ```
 
-Restart Claude Code. Try:
+Restart Claude Code. Try this — and watch the inline "*Saved to Hippocamp*" annotations as Claude proactively captures the signals:
 
-> *"Remember that hippocamps are half-horse, half-fish, that they should never be confused with hippopotamuses, and that the brain's hippocampus is named after them."*
+> *"I'm building a Python 3.13 project with FastAPI. I prefer terse replies. By the way, hippocamps are half-horse, half-fish — and they're not hippopotamuses."*
 
-Then in any future Claude session — even a fresh one tomorrow on a different machine — ask *"what's a hippocamp again?"* and it'll come back with the right answer.
+Three saves happen automatically: a fact (Python 3.13 + FastAPI), a preference (terse replies), and a fact about hippocamps. No "remember" required.
+
+Then in any future Claude session — even a fresh one tomorrow on a different machine — ask *"what do you know about my project?"* or *"what's a hippocamp again?"* and it'll come back with the right answer.
 
 ## Make it work on every machine you own
 
@@ -38,6 +40,16 @@ hippocamp setup gemini-cli          # Gemini CLI
 ```
 
 Same memory, every host. Pass the same `--path` if you want cross-machine sync.
+
+## How Claude uses your memory
+
+Once wired up, Claude uses Hippocamp **proactively** — not just when you say "remember":
+
+- **Saves automatically** when you state a preference, a stable fact about your project or tooling, a decision, or a notable event. Each save is announced inline (*"Saved to Hippocamp: preference (terse replies)"*) so you always know what's been captured.
+- **Recalls automatically** when you reference past context.
+- **Skips noise** — hypotheticals, transient debugging state, code outputs, things already in this session.
+
+If something gets saved that you don't want, just say *"forget that"* in conversation — Claude calls the forget action. Or run `hippocamp inspect` to see everything stored.
 
 ## What just happened
 
@@ -118,7 +130,7 @@ The technical wedges:
 
 ## Status
 
-**v0.3.0 (alpha).** The architecture is stable; the surface is small enough to keep audited. Coming next: HTTP/SSE transport for self-hosted always-on stores, encrypted multi-device relay.
+**v0.3.2 (alpha).** Architecture stable; ambient memory behaviour live (Claude saves proactively as the conversation flows, with inline announcements). Coming next: HTTP/SSE transport for self-hosted always-on stores, encrypted multi-device relay.
 
 ## License
 
