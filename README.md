@@ -76,6 +76,9 @@ hippocamp sync                        # rebuild local cache from events
 hippocamp sync <local-path>           # merge events from a file/dir, then rebuild
 hippocamp sync <user@host[:path]>     # bidirectional rsync, then rebuild
 
+hippocamp instructions                # print the directive (full)
+hippocamp instructions --short        # compact version (paste into Claude Desktop / ChatGPT custom instructions)
+
 hippocamp reindex [--embedder NAME]   # recompute embeddings (after a model swap)
 ```
 

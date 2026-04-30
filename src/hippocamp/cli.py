@@ -94,6 +94,13 @@ def _cmd_inspect(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_instructions(args: argparse.Namespace) -> int:
+    from hippocamp.instructions import get_instructions
+
+    print(get_instructions(short=args.short))
+    return 0
+
+
 def _resolve_embedder(name: str | None):
     """Look up a named embedder. Add new ones here as they're added."""
     if name is None:
@@ -336,6 +343,18 @@ def main(argv: list[str] | None = None) -> int:
     p_status = sub.add_parser("status", help="Show what's stored and where.")
     p_status.add_argument("--path", default=None, help="Path to store dir")
     p_status.set_defaults(func=_cmd_status)
+
+    p_instructions = sub.add_parser(
+        "instructions",
+        help="Print the Hippocamp directive (for pasting into Claude Desktop / "
+        "ChatGPT custom instructions).",
+    )
+    p_instructions.add_argument(
+        "--short",
+        action="store_true",
+        help="Compact 4-paragraph version (best for Claude Desktop's Profile field).",
+    )
+    p_instructions.set_defaults(func=_cmd_instructions)
 
     p_reindex = sub.add_parser(
         "reindex",

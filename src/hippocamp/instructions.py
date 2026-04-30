@@ -19,6 +19,16 @@ START_MARKER = "<!-- hippocamp:start -->"
 END_MARKER = "<!-- hippocamp:end -->"
 
 
+SHORT_INSTRUCTIONS = """\
+I have Hippocamp installed (recall_memory and update_memory MCP tools) — a portable memory layer that follows me across AI hosts and machines.
+
+Save proactively when I state a preference, a stable fact about my project or tooling, a decision, a deadline, or a notable event. Don't wait for me to say "remember." Announce each save inline ("Saved to Hippocamp: …") so I stay in the loop.
+
+When I reference past context or ask what you remember, call recall_memory first — even if the host's built-in memory looks empty.
+
+Skip: hypotheticals, transient debugging state, code outputs, and things already in this conversation."""
+
+
 INSTRUCTIONS = f"""{START_MARKER}
 ## Hippocamp memory
 
@@ -64,6 +74,21 @@ Hippocamp memory follows the user across hosts (Claude Desktop, ChatGPT Apps, Cu
 
 def claude_user_md_path() -> Path:
     return Path.home() / ".claude" / "CLAUDE.md"
+
+
+def get_instructions(short: bool = False) -> str:
+    """Return the Hippocamp directive as plain text, ready to paste.
+
+    `short=False` returns the full CLAUDE.md body without the marker
+    fence. `short=True` returns the compact 4-paragraph version
+    suitable for Claude Desktop's profile / custom-instructions field.
+    """
+    if short:
+        return SHORT_INSTRUCTIONS
+    body = INSTRUCTIONS
+    body = body.removeprefix(START_MARKER + "\n")
+    body = body.removesuffix("\n" + END_MARKER)
+    return body
 
 
 def install_or_update(path: Path) -> str:

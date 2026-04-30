@@ -281,10 +281,10 @@ def setup_claude_desktop(
     res = _add_mcp_entry(cfg, "hippocamp", cmd, env=_build_env(path, cache_dir))
     res.host = "claude-desktop"
     res.notes = (
-        "Quit and reopen Claude Desktop (Cmd+Q) to pick up the change. "
-        "Note: Claude Desktop has no CLAUDE.md equivalent — for proactive memory, "
-        "paste the directive from templates/CLAUDE.md into Claude Desktop's "
-        "custom instructions (Settings → Profile)."
+        "Quit and reopen Claude Desktop (Cmd+Q) to pick up the change.\n"
+        "For proactive memory, paste the directive into Claude Desktop's profile:\n"
+        "  hippocamp instructions --short | pbcopy\n"
+        "…then paste into Claude Desktop → Settings → Profile."
     )
     return res
 

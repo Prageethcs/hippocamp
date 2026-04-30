@@ -100,3 +100,32 @@ def test_remove_block_when_file_missing(tmp_path):
     p = tmp_path / "missing.md"
     action = remove_block(p)
     assert action == "file-missing"
+
+
+def test_get_instructions_full_has_no_markers():
+    from hippocamp.instructions import get_instructions
+
+    text = get_instructions()
+    assert START_MARKER not in text
+    assert END_MARKER not in text
+    assert "Hippocamp memory" in text
+
+
+def test_get_instructions_short_is_compact():
+    from hippocamp.instructions import get_instructions
+
+    full = get_instructions(short=False)
+    short = get_instructions(short=True)
+
+    assert "Hippocamp" in short
+    assert "recall_memory" in short
+    # Compact: meaningfully shorter
+    assert len(short) < len(full) // 2
+
+
+def test_get_instructions_short_has_no_markers_either():
+    from hippocamp.instructions import get_instructions
+
+    text = get_instructions(short=True)
+    assert START_MARKER not in text
+    assert END_MARKER not in text
