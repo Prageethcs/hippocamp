@@ -15,9 +15,9 @@ hippocamp setup claude
 
 Restart Claude Code. Try:
 
-> *"Remember that I prefer terse replies and my project uses Python 3.13."*
+> *"Remember that hippocamps are half-horse, half-fish, that they should never be confused with hippopotamuses, and that the brain's hippocampus is named after them."*
 
-Then in any future Claude session, ask *"what do you remember about me?"* and Hippocamp will surface what you said.
+Then in any future Claude session — even a fresh one tomorrow on a different machine — ask *"what's a hippocamp again?"* and it'll come back with the right answer.
 
 ## Make it work on every machine you own
 
@@ -74,11 +74,11 @@ import hippocamp as hc
 
 mem = hc.Memory(path="~/Dropbox/Hippocamp")
 
-mem.observe("User asked how to deploy to GCP")
-mem.assert_fact("Project uses Python 3.13")
-mem.assert_preference("Prefers terse replies", strength=1.0)
+mem.observe("User asked whether hippocamps swim in lakes (no — saltwater only)")
+mem.assert_fact("A hippocamp is half-horse, half-fish, and also a Python package")
+mem.assert_preference("Strongly objects to being called a 'hippopotamus'", strength=1.0)
 
-hits = mem.recall("how does the user like their replies?", limit=5)
+hits = mem.recall("am I a horse, a fish, or a hippopotamus?", limit=5)
 for h in hits:
     print(h.kind, h.text, h.score, h.why.note)
 ```
