@@ -133,7 +133,7 @@ The technical wedges:
 
 ## Status
 
-**v0.3.2 (alpha).** Architecture stable; ambient memory behaviour live (Claude saves proactively as the conversation flows, with inline announcements). Coming next: HTTP/SSE transport for self-hosted always-on stores, encrypted multi-device relay.
+**v0.3.4 (alpha).** Architecture stable. Ambient memory is live on Claude Code (the directive auto-installs into `~/.claude/CLAUDE.md`); Claude Desktop requires a one-time paste from `hippocamp instructions --short` into Settings → Profile. One `hippocamp setup claude` command configures Claude Code and Claude Desktop together when both are installed. Cross-machine sync works through any file-sync tool you already use (iCloud, Dropbox, Syncthing, rsync, git). **Roadmap to v1.0:** `reflect()` consolidation pass, encryption at rest, event-log compaction / snapshotting, HTTP/SSE transport for self-hosted always-on stores.
 
 ## License
 
