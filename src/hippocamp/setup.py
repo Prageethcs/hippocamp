@@ -16,6 +16,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from hippocamp.instructions import (
+    claude_user_md_path,
+    install_or_update as install_instructions_block,
+)
+
 
 @dataclass
 class SetupResult:
@@ -129,11 +134,21 @@ def setup_claude(
     command: str | None = None,
     path: str | None = None,
     cache_dir: str | None = None,
+    install_instructions: bool = True,
+    project_instructions_dir: str | Path | None = None,
 ) -> SetupResult:
     """Register Hippocamp with Claude Code via `claude mcp add`.
 
     Uses the official `claude` CLI, which handles `~/.claude.json`
     merging safely. Fails clearly if the CLI is missing.
+
+    By default, also writes a Hippocamp directive into the user-scoped
+    `~/.claude/CLAUDE.md` so the assistant prefers Hippocamp over the
+    host's built-in auto-memory. The directive is marker-bounded and
+    idempotent. Pass `install_instructions=False` to skip.
+
+    Pass `project_instructions_dir=PATH` to *also* write the directive
+    into `<PATH>/CLAUDE.md` for that project.
     """
     cli = shutil.which("claude")
     if not cli:
@@ -157,14 +172,37 @@ def setup_claude(
     if proc.returncode != 0:
         stderr = proc.stderr.strip()
         if "already exists" in stderr.lower() or "already configured" in stderr.lower():
-            return SetupResult(host="claude", config_path=None, action="already-present")
-        raise RuntimeError(f"`claude mcp add` failed:\n{stderr}")
+            mcp_action = "already-present"
+            mcp_notes = ""
+        else:
+            raise RuntimeError(f"`claude mcp add` failed:\n{stderr}")
+    else:
+        mcp_action = "host-cli"
+        mcp_notes = proc.stdout.strip()
+
+    notes_parts: list[str] = [mcp_notes] if mcp_notes else []
+
+    if install_instructions:
+        try:
+            user_md = claude_user_md_path()
+            action = install_instructions_block(user_md)
+            notes_parts.append(f"~/.claude/CLAUDE.md: {action}")
+        except OSError as e:
+            notes_parts.append(f"warning: could not write ~/.claude/CLAUDE.md: {e}")
+
+    if project_instructions_dir:
+        try:
+            project_md = Path(project_instructions_dir).expanduser() / "CLAUDE.md"
+            action = install_instructions_block(project_md)
+            notes_parts.append(f"{project_md}: {action}")
+        except OSError as e:
+            notes_parts.append(f"warning: could not write project CLAUDE.md: {e}")
 
     return SetupResult(
         host="claude",
         config_path=Path.home() / ".claude.json",
-        action="host-cli",
-        notes=proc.stdout.strip(),
+        action=mcp_action,
+        notes="\n".join(notes_parts),
     )
 
 

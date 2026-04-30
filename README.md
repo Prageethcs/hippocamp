@@ -85,9 +85,22 @@ for h in hits:
     print(h.kind, h.text, h.score, h.why.note)
 ```
 
-## Make Claude prefer Hippocamp over its built-in memory (optional)
+## Make Claude prefer Hippocamp over its built-in memory
 
-Most hosts have their own memory features. Hippocamp's tool descriptions are pretty assertive, but if you want to be sure the host always uses Hippocamp, drop [`templates/CLAUDE.md`](templates/CLAUDE.md) into your project (or append to `~/.claude/CLAUDE.md` for a global default).
+Done automatically. `hippocamp setup claude` writes a Hippocamp directive into `~/.claude/CLAUDE.md` so the assistant prefers Hippocamp over Claude Code's built-in auto-memory. The block is wrapped in `<!-- hippocamp:start -->` / `<!-- hippocamp:end -->` markers — re-running setup is idempotent, and any unrelated content in your `CLAUDE.md` is preserved.
+
+Opt out if you want to manage instructions yourself:
+
+```bash
+hippocamp setup claude --no-instructions
+```
+
+Or also write the directive into a project-scoped `CLAUDE.md`:
+
+```bash
+hippocamp setup claude --project-instructions ~/projects/myapp
+# → also writes ~/projects/myapp/CLAUDE.md with the same block
+```
 
 ## Why this exists
 

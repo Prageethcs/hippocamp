@@ -42,8 +42,14 @@ def _open_memory(path_arg: str | None) -> Memory:
 
 def _cmd_setup(args: argparse.Namespace) -> int:
     fn = SETUP_FUNCS[args.host]
+    kwargs: dict = {"path": args.path, "cache_dir": args.cache_dir}
+    if args.host == "claude":
+        kwargs["install_instructions"] = not args.no_instructions
+        if args.project_instructions:
+            kwargs["project_instructions_dir"] = args.project_instructions
+
     try:
-        result = fn(path=args.path, cache_dir=args.cache_dir)
+        result = fn(**kwargs)
     except RuntimeError as e:
         print(f"hippocamp: {e}", file=sys.stderr)
         return 1
@@ -277,6 +283,18 @@ def main(argv: list[str] | None = None) -> int:
         default=None,
         help="Local-only cache base dir (defaults to OS cache dir). "
         "Passed to the host as HIPPOCAMP_CACHE_DIR.",
+    )
+    p_setup.add_argument(
+        "--no-instructions",
+        action="store_true",
+        help="(Claude Code only) skip writing the Hippocamp directive to "
+        "~/.claude/CLAUDE.md.",
+    )
+    p_setup.add_argument(
+        "--project-instructions",
+        metavar="DIR",
+        default=None,
+        help="(Claude Code only) also write the directive to <DIR>/CLAUDE.md.",
     )
     p_setup.set_defaults(func=_cmd_setup)
 

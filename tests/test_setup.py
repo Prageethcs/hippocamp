@@ -134,6 +134,83 @@ def test_setup_without_path_omits_env_block(tmp_path):
     assert "env" not in entry
 
 
+def test_setup_claude_writes_user_instructions(monkeypatch, tmp_path):
+    """Default behaviour: setup_claude appends to ~/.claude/CLAUDE.md."""
+    from hippocamp import setup as setup_mod
+    from hippocamp import instructions as instr_mod
+
+    fake_home_md = tmp_path / "claude" / "CLAUDE.md"
+
+    class FakeProc:
+        returncode = 0
+        stdout = "Added stdio MCP server"
+        stderr = ""
+
+    monkeypatch.setattr(setup_mod.shutil, "which", lambda n: "/usr/bin/claude" if n == "claude" else None)
+    monkeypatch.setattr(setup_mod.subprocess, "run", lambda *a, **k: FakeProc())
+    monkeypatch.setattr(setup_mod, "find_hippocamp_mcp", lambda: "/path/to/hippocamp-mcp")
+    monkeypatch.setattr(setup_mod, "claude_user_md_path", lambda: fake_home_md)
+    monkeypatch.setattr(instr_mod, "claude_user_md_path", lambda: fake_home_md)
+
+    setup_mod.setup_claude()
+
+    assert fake_home_md.exists()
+    assert "Hippocamp memory" in fake_home_md.read_text()
+
+
+def test_setup_claude_no_instructions_skips(monkeypatch, tmp_path):
+    """Opt-out flag: install_instructions=False leaves CLAUDE.md alone."""
+    from hippocamp import setup as setup_mod
+    from hippocamp import instructions as instr_mod
+
+    fake_home_md = tmp_path / "claude" / "CLAUDE.md"
+
+    class FakeProc:
+        returncode = 0
+        stdout = ""
+        stderr = ""
+
+    monkeypatch.setattr(setup_mod.shutil, "which", lambda n: "/usr/bin/claude" if n == "claude" else None)
+    monkeypatch.setattr(setup_mod.subprocess, "run", lambda *a, **k: FakeProc())
+    monkeypatch.setattr(setup_mod, "find_hippocamp_mcp", lambda: "/path/to/hippocamp-mcp")
+    monkeypatch.setattr(setup_mod, "claude_user_md_path", lambda: fake_home_md)
+    monkeypatch.setattr(instr_mod, "claude_user_md_path", lambda: fake_home_md)
+
+    setup_mod.setup_claude(install_instructions=False)
+
+    assert not fake_home_md.exists()
+
+
+def test_setup_claude_writes_project_instructions(monkeypatch, tmp_path):
+    """`project_instructions_dir` writes a CLAUDE.md inside that dir."""
+    from hippocamp import setup as setup_mod
+    from hippocamp import instructions as instr_mod
+
+    fake_home_md = tmp_path / "claude" / "CLAUDE.md"
+    project_dir = tmp_path / "myproject"
+    project_dir.mkdir()
+
+    class FakeProc:
+        returncode = 0
+        stdout = ""
+        stderr = ""
+
+    monkeypatch.setattr(setup_mod.shutil, "which", lambda n: "/usr/bin/claude" if n == "claude" else None)
+    monkeypatch.setattr(setup_mod.subprocess, "run", lambda *a, **k: FakeProc())
+    monkeypatch.setattr(setup_mod, "find_hippocamp_mcp", lambda: "/path/to/hippocamp-mcp")
+    monkeypatch.setattr(setup_mod, "claude_user_md_path", lambda: fake_home_md)
+    monkeypatch.setattr(instr_mod, "claude_user_md_path", lambda: fake_home_md)
+
+    setup_mod.setup_claude(
+        install_instructions=False,
+        project_instructions_dir=project_dir,
+    )
+
+    project_md = project_dir / "CLAUDE.md"
+    assert project_md.exists()
+    assert "Hippocamp memory" in project_md.read_text()
+
+
 def test_setup_claude_uses_attached_env_form(monkeypatch):
     """Regression: `claude mcp add` treats -e as variadic and would
     otherwise consume the server-name positional. We must use the
