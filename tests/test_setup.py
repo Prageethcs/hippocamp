@@ -84,7 +84,7 @@ def test_setup_claude_desktop_writes_to_given_path(tmp_path):
     )
     assert res.host == "claude-desktop"
     assert res.action == "added"
-    assert "Restart Claude Desktop" in res.notes
+    assert "Claude Desktop" in res.notes
     data = _read(cfg)
     assert data["mcpServers"]["hippocamp"]["command"] == "/x/hippocamp-mcp"
 
@@ -134,26 +134,41 @@ def test_setup_without_path_omits_env_block(tmp_path):
     assert "env" not in entry
 
 
-def test_setup_claude_writes_user_instructions(monkeypatch, tmp_path):
-    """Default behaviour: setup_claude appends to ~/.claude/CLAUDE.md."""
+def _patch_setup_claude(monkeypatch, tmp_path, *, code_available=True, desktop_available=False):
+    """Common monkeypatching for setup_claude tests."""
     from hippocamp import setup as setup_mod
     from hippocamp import instructions as instr_mod
 
     fake_home_md = tmp_path / "claude" / "CLAUDE.md"
+    fake_desktop_cfg = tmp_path / "claude_desktop_config.json"
 
     class FakeProc:
         returncode = 0
         stdout = "Added stdio MCP server"
         stderr = ""
 
-    monkeypatch.setattr(setup_mod.shutil, "which", lambda n: "/usr/bin/claude" if n == "claude" else None)
+    monkeypatch.setattr(setup_mod.shutil, "which",
+                        lambda n: "/usr/bin/claude" if (n == "claude" and code_available) else None)
     monkeypatch.setattr(setup_mod.subprocess, "run", lambda *a, **k: FakeProc())
     monkeypatch.setattr(setup_mod, "find_hippocamp_mcp", lambda: "/path/to/hippocamp-mcp")
     monkeypatch.setattr(setup_mod, "claude_user_md_path", lambda: fake_home_md)
     monkeypatch.setattr(instr_mod, "claude_user_md_path", lambda: fake_home_md)
+    monkeypatch.setattr(setup_mod, "is_claude_desktop_installed", lambda: desktop_available)
+    monkeypatch.setattr(setup_mod, "_claude_desktop_config_path", lambda: fake_desktop_cfg)
 
-    setup_mod.setup_claude()
+    return fake_home_md, fake_desktop_cfg
 
+
+def test_setup_claude_writes_user_instructions(monkeypatch, tmp_path):
+    """Default behaviour: setup_claude appends to ~/.claude/CLAUDE.md."""
+    from hippocamp import setup as setup_mod
+
+    fake_home_md, _ = _patch_setup_claude(monkeypatch, tmp_path)
+    results = setup_mod.setup_claude()
+
+    assert isinstance(results, list)
+    assert len(results) == 1
+    assert results[0].host == "claude-code"
     assert fake_home_md.exists()
     assert "Hippocamp memory" in fake_home_md.read_text()
 
@@ -161,21 +176,8 @@ def test_setup_claude_writes_user_instructions(monkeypatch, tmp_path):
 def test_setup_claude_no_instructions_skips(monkeypatch, tmp_path):
     """Opt-out flag: install_instructions=False leaves CLAUDE.md alone."""
     from hippocamp import setup as setup_mod
-    from hippocamp import instructions as instr_mod
 
-    fake_home_md = tmp_path / "claude" / "CLAUDE.md"
-
-    class FakeProc:
-        returncode = 0
-        stdout = ""
-        stderr = ""
-
-    monkeypatch.setattr(setup_mod.shutil, "which", lambda n: "/usr/bin/claude" if n == "claude" else None)
-    monkeypatch.setattr(setup_mod.subprocess, "run", lambda *a, **k: FakeProc())
-    monkeypatch.setattr(setup_mod, "find_hippocamp_mcp", lambda: "/path/to/hippocamp-mcp")
-    monkeypatch.setattr(setup_mod, "claude_user_md_path", lambda: fake_home_md)
-    monkeypatch.setattr(instr_mod, "claude_user_md_path", lambda: fake_home_md)
-
+    fake_home_md, _ = _patch_setup_claude(monkeypatch, tmp_path)
     setup_mod.setup_claude(install_instructions=False)
 
     assert not fake_home_md.exists()
@@ -184,22 +186,10 @@ def test_setup_claude_no_instructions_skips(monkeypatch, tmp_path):
 def test_setup_claude_writes_project_instructions(monkeypatch, tmp_path):
     """`project_instructions_dir` writes a CLAUDE.md inside that dir."""
     from hippocamp import setup as setup_mod
-    from hippocamp import instructions as instr_mod
 
-    fake_home_md = tmp_path / "claude" / "CLAUDE.md"
+    _patch_setup_claude(monkeypatch, tmp_path)
     project_dir = tmp_path / "myproject"
     project_dir.mkdir()
-
-    class FakeProc:
-        returncode = 0
-        stdout = ""
-        stderr = ""
-
-    monkeypatch.setattr(setup_mod.shutil, "which", lambda n: "/usr/bin/claude" if n == "claude" else None)
-    monkeypatch.setattr(setup_mod.subprocess, "run", lambda *a, **k: FakeProc())
-    monkeypatch.setattr(setup_mod, "find_hippocamp_mcp", lambda: "/path/to/hippocamp-mcp")
-    monkeypatch.setattr(setup_mod, "claude_user_md_path", lambda: fake_home_md)
-    monkeypatch.setattr(instr_mod, "claude_user_md_path", lambda: fake_home_md)
 
     setup_mod.setup_claude(
         install_instructions=False,
@@ -211,15 +201,62 @@ def test_setup_claude_writes_project_instructions(monkeypatch, tmp_path):
     assert "Hippocamp memory" in project_md.read_text()
 
 
-def test_setup_claude_uses_attached_env_form(monkeypatch):
+def test_setup_claude_configures_both_when_both_installed(monkeypatch, tmp_path):
+    """When Claude Code AND Claude Desktop are both present, both get set up."""
+    from hippocamp import setup as setup_mod
+    import json as _json
+
+    fake_home_md, fake_desktop_cfg = _patch_setup_claude(
+        monkeypatch, tmp_path, code_available=True, desktop_available=True,
+    )
+    results = setup_mod.setup_claude()
+
+    assert len(results) == 2
+    hosts = [r.host for r in results]
+    assert "claude-code" in hosts
+    assert "claude-desktop" in hosts
+
+    # Claude Desktop's mcp config now contains the hippocamp entry.
+    assert fake_desktop_cfg.exists()
+    cfg = _json.loads(fake_desktop_cfg.read_text())
+    assert "hippocamp" in cfg["mcpServers"]
+    assert cfg["mcpServers"]["hippocamp"]["command"] == "/path/to/hippocamp-mcp"
+
+
+def test_setup_claude_only_desktop_when_no_cli(monkeypatch, tmp_path):
+    """Just Claude Desktop is fine — Claude Code path is skipped."""
+    from hippocamp import setup as setup_mod
+
+    _, fake_desktop_cfg = _patch_setup_claude(
+        monkeypatch, tmp_path, code_available=False, desktop_available=True,
+    )
+    results = setup_mod.setup_claude()
+
+    assert len(results) == 1
+    assert results[0].host == "claude-desktop"
+    assert fake_desktop_cfg.exists()
+
+
+def test_setup_claude_errors_when_neither_installed(monkeypatch, tmp_path):
+    from hippocamp import setup as setup_mod
+    import pytest as _pytest
+
+    _patch_setup_claude(monkeypatch, tmp_path, code_available=False, desktop_available=False)
+    with _pytest.raises(RuntimeError, match="Neither"):
+        setup_mod.setup_claude()
+
+
+def test_setup_claude_uses_attached_env_form(monkeypatch, tmp_path):
     """Regression: `claude mcp add` treats -e as variadic and would
     otherwise consume the server-name positional. We must use the
     attached-value form `--env=KEY=VAL` so the flag and value are a
     single argv token.
     """
     from hippocamp import setup as setup_mod
+    from hippocamp import instructions as instr_mod
 
     captured: list[list[str]] = []
+    fake_home_md = tmp_path / "claude" / "CLAUDE.md"
 
     class FakeProc:
         returncode = 0
@@ -236,6 +273,9 @@ def test_setup_claude_uses_attached_env_form(monkeypatch):
     monkeypatch.setattr(setup_mod.shutil, "which", fake_which)
     monkeypatch.setattr(setup_mod.subprocess, "run", fake_run)
     monkeypatch.setattr(setup_mod, "find_hippocamp_mcp", lambda: "/path/to/hippocamp-mcp")
+    monkeypatch.setattr(setup_mod, "claude_user_md_path", lambda: fake_home_md)
+    monkeypatch.setattr(instr_mod, "claude_user_md_path", lambda: fake_home_md)
+    monkeypatch.setattr(setup_mod, "is_claude_desktop_installed", lambda: False)
 
     setup_mod.setup_claude(path="/tmp/foo", cache_dir="/tmp/bar")
 

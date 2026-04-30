@@ -54,14 +54,24 @@ def _cmd_setup(args: argparse.Namespace) -> int:
         print(f"hippocamp: {e}", file=sys.stderr)
         return 1
 
-    where = result.config_path or "(via host CLI)"
-    print(f"hippocamp setup {args.host}: {result.action} at {where}")
+    # `setup claude` returns a list (one entry per detected host); the
+    # single-host setups (claude-desktop, cursor, gemini-cli) return a
+    # single SetupResult.
+    results = result if isinstance(result, list) else [result]
+
     if args.path:
-        print(f"  store dir: {args.path}")
+        print(f"store dir:  {args.path}")
     if args.cache_dir:
-        print(f"  cache dir: {args.cache_dir}")
-    if result.notes:
-        print(result.notes)
+        print(f"cache dir:  {args.cache_dir}")
+
+    for r in results:
+        where = r.config_path or "(via host CLI)"
+        print()
+        print(f"→ {r.host}: {r.action} at {where}")
+        if r.notes:
+            for line in r.notes.split("\n"):
+                if line.strip():
+                    print(f"  {line}")
     return 0
 
 

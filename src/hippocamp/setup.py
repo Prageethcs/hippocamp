@@ -46,6 +46,31 @@ def _claude_desktop_config_path() -> Path:
     return home / ".config" / "Claude" / "claude_desktop_config.json"
 
 
+def is_claude_desktop_installed() -> bool:
+    """Best-effort check for whether Claude Desktop is installed.
+
+    macOS: looks for the .app bundle.
+    Windows / Linux: looks for the config dir, which Claude Desktop creates
+    on first launch.
+    """
+    sysname = platform.system()
+    if sysname == "Darwin":
+        for p in (
+            Path("/Applications/Claude.app"),
+            Path.home() / "Applications" / "Claude.app",
+        ):
+            if p.exists():
+                return True
+        # Fallback: config dir created on first launch
+        return _claude_desktop_config_path().parent.exists()
+    if sysname == "Windows":
+        appdata = os.environ.get("APPDATA")
+        if appdata and (Path(appdata) / "Claude").exists():
+            return True
+        return False
+    return _claude_desktop_config_path().parent.exists()
+
+
 def _cursor_config_path() -> Path:
     return Path.home() / ".cursor" / "mcp.json"
 
@@ -136,27 +161,65 @@ def setup_claude(
     cache_dir: str | None = None,
     install_instructions: bool = True,
     project_instructions_dir: str | Path | None = None,
+) -> list[SetupResult]:
+    """Set up Hippocamp for Claude Code and/or Claude Desktop, whichever are installed.
+
+    Returns a list of `SetupResult`s, one per host configured. Errors if
+    neither Claude Code (the `claude` CLI) nor Claude Desktop is found.
+
+    See `_setup_claude_code` for what happens for Claude Code, and
+    `setup_claude_desktop` for Claude Desktop.
+    """
+    cmd = command or find_hippocamp_mcp()
+    results: list[SetupResult] = []
+
+    code_available = shutil.which("claude") is not None
+    desktop_available = is_claude_desktop_installed()
+
+    if not code_available and not desktop_available:
+        raise RuntimeError(
+            "Neither Claude Code nor Claude Desktop is installed. "
+            "Install Claude Code from https://claude.com/claude-code "
+            "or Claude Desktop from https://claude.ai/download."
+        )
+
+    if code_available:
+        results.append(
+            _setup_claude_code(
+                cmd=cmd,
+                path=path,
+                cache_dir=cache_dir,
+                install_instructions=install_instructions,
+                project_instructions_dir=project_instructions_dir,
+            )
+        )
+
+    if desktop_available:
+        results.append(
+            setup_claude_desktop(command=cmd, path=path, cache_dir=cache_dir)
+        )
+
+    return results
+
+
+def _setup_claude_code(
+    *,
+    cmd: str,
+    path: str | None,
+    cache_dir: str | None,
+    install_instructions: bool,
+    project_instructions_dir: str | Path | None,
 ) -> SetupResult:
     """Register Hippocamp with Claude Code via `claude mcp add`.
 
-    Uses the official `claude` CLI, which handles `~/.claude.json`
-    merging safely. Fails clearly if the CLI is missing.
-
-    By default, also writes a Hippocamp directive into the user-scoped
-    `~/.claude/CLAUDE.md` so the assistant prefers Hippocamp over the
-    host's built-in auto-memory. The directive is marker-bounded and
-    idempotent. Pass `install_instructions=False` to skip.
-
-    Pass `project_instructions_dir=PATH` to *also* write the directive
-    into `<PATH>/CLAUDE.md` for that project.
+    By default also writes the Hippocamp directive into the user-scoped
+    `~/.claude/CLAUDE.md`.
     """
     cli = shutil.which("claude")
     if not cli:
         raise RuntimeError(
             "claude CLI not found. Install Claude Code from https://claude.com/claude-code"
         )
-
-    cmd = command or find_hippocamp_mcp()
 
     args = [cli, "mcp", "add", "-s", "user"]
     env = _build_env(path, cache_dir)
@@ -199,7 +262,7 @@ def setup_claude(
             notes_parts.append(f"warning: could not write project CLAUDE.md: {e}")
 
     return SetupResult(
-        host="claude",
+        host="claude-code",
         config_path=Path.home() / ".claude.json",
         action=mcp_action,
         notes="\n".join(notes_parts),
@@ -217,7 +280,12 @@ def setup_claude_desktop(
     cfg = config_path or _claude_desktop_config_path()
     res = _add_mcp_entry(cfg, "hippocamp", cmd, env=_build_env(path, cache_dir))
     res.host = "claude-desktop"
-    res.notes = "Restart Claude Desktop to pick up the change."
+    res.notes = (
+        "Quit and reopen Claude Desktop (Cmd+Q) to pick up the change. "
+        "Note: Claude Desktop has no CLAUDE.md equivalent — for proactive memory, "
+        "paste the directive from templates/CLAUDE.md into Claude Desktop's "
+        "custom instructions (Settings → Profile)."
+    )
     return res
 
 
