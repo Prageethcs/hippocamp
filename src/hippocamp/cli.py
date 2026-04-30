@@ -78,16 +78,6 @@ def _cmd_inspect(args: argparse.Namespace) -> int:
     return 0
 
 
-def _cmd_replay(args: argparse.Namespace) -> int:
-    mem = _open_memory(args.path)
-    if mem.events_dir is None:
-        print("hippocamp: cannot replay an in-memory store", file=sys.stderr)
-        return 1
-    n = mem.replay()
-    print(f"replayed {n} events into {mem.cache_path}")
-    return 0
-
-
 def _resolve_embedder(name: str | None):
     """Look up a named embedder. Add new ones here as they're added."""
     if name is None:
@@ -128,15 +118,50 @@ def _cmd_reindex(args: argparse.Namespace) -> int:
     return 0
 
 
-def _cmd_sync_merge(args: argparse.Namespace) -> int:
+def _is_remote_target(target: str) -> bool:
+    """`user@host:path` or `host:path` (with no existing local path of that name)."""
+    if Path(target).expanduser().exists():
+        return False
+    return "@" in target and ":" in target
+
+
+def _peer_events_dir(peer: str) -> str:
+    """Turn a peer spec (`user@host[:path]`) into an rsync `events/` URL."""
+    user_host, _, path = peer.partition(":")
+    path = path.strip() or "~/.hippocamp"
+    return f"{user_host}:{path.rstrip('/')}/events/"
+
+
+def _cmd_sync(args: argparse.Namespace) -> int:
+    """One smart sync command. Behaviour depends on `target`:
+
+      no target  → rebuild local cache from existing events (cloud-folder case).
+      local path → merge events from that path, then rebuild.
+      remote     → bidirectional rsync (push our device file, pull peers'),
+                   then rebuild.
+    """
     mem = _open_memory(args.path)
     if mem.events_dir is None or mem.meta is None:
-        print("hippocamp: cannot merge into an in-memory store", file=sys.stderr)
+        print("hippocamp: in-memory store; nothing to sync", file=sys.stderr)
         return 1
 
+    target = args.target
+
+    if target is None:
+        n = mem.replay()
+        print(f"rebuilt local cache ({n} events)")
+        return 0
+
+    if _is_remote_target(target):
+        return _sync_remote(mem, target, no_replay=args.no_replay)
+
+    return _sync_local(mem, Path(target).expanduser(), no_replay=args.no_replay)
+
+
+def _sync_local(mem, foreign_path: Path, *, no_replay: bool) -> int:
     try:
         report = merge_foreign_events(
-            foreign_path=Path(args.foreign).expanduser(),
+            foreign_path=foreign_path,
             local_events_dir=mem.events_dir,
             local_meta=mem.meta,
             local_device_id=mem.device_id,
@@ -147,40 +172,29 @@ def _cmd_sync_merge(args: argparse.Namespace) -> int:
 
     print(_format_merge_report(report))
 
-    if not args.no_replay:
+    if not no_replay:
         n = mem.replay()
-        print(f"replayed {n} events")
+        print(f"rebuilt cache ({n} events)")
     return 0
 
 
-def _cmd_sync_push(args: argparse.Namespace) -> int:
-    mem = _open_memory(args.path)
-    if mem.events_own_file is None:
-        print("hippocamp: cannot push from an in-memory store", file=sys.stderr)
-        return 1
+def _sync_remote(mem, peer: str, *, no_replay: bool) -> int:
+    peer_events = _peer_events_dir(peer)
+
     try:
-        msg = push_via_rsync(own_file=mem.events_own_file, peer=args.peer)
+        push_via_rsync(own_file=mem.events_own_file, peer=peer_events)
     except (FileNotFoundError, RuntimeError) as e:
-        print(f"hippocamp: {e}", file=sys.stderr)
+        print(f"hippocamp: push failed: {e}", file=sys.stderr)
         return 1
-    print(msg)
-    return 0
-
-
-def _cmd_sync_pull(args: argparse.Namespace) -> int:
-    mem = _open_memory(args.path)
-    if mem.events_dir is None or mem.meta is None:
-        print("hippocamp: cannot pull into an in-memory store", file=sys.stderr)
-        return 1
+    print(f"  → pushed {mem.events_own_file.name}")
 
     with tempfile.TemporaryDirectory() as tmp:
         tmp_path = Path(tmp)
         try:
-            msg = pull_via_rsync(peer_events_dir=args.peer, into=tmp_path)
+            pull_via_rsync(peer_events_dir=peer_events, into=tmp_path)
         except RuntimeError as e:
-            print(f"hippocamp: {e}", file=sys.stderr)
+            print(f"hippocamp: pull failed: {e}", file=sys.stderr)
             return 1
-        print(msg)
 
         report = merge_foreign_events(
             foreign_path=tmp_path,
@@ -190,13 +204,13 @@ def _cmd_sync_pull(args: argparse.Namespace) -> int:
         )
         print(_format_merge_report(report))
 
-    if not args.no_replay:
+    if not no_replay:
         n = mem.replay()
-        print(f"replayed {n} events")
+        print(f"rebuilt cache ({n} events)")
     return 0
 
 
-def _cmd_sync_status(args: argparse.Namespace) -> int:
+def _cmd_status(args: argparse.Namespace) -> int:
     mem = _open_memory(args.path)
     if mem.events_dir is None:
         print("hippocamp: in-memory store; no sync state")
@@ -272,12 +286,28 @@ def main(argv: list[str] | None = None) -> int:
     p_inspect.add_argument("--limit", type=int, default=5)
     p_inspect.set_defaults(func=_cmd_inspect)
 
-    p_replay = sub.add_parser(
-        "replay",
-        help="Wipe the cache and rebuild it from the event log.",
+    p_sync = sub.add_parser(
+        "sync",
+        help="Sync local cache with events. With a target, also fetch/exchange first.",
     )
-    p_replay.add_argument("--path", default=None, help="Path to store.db")
-    p_replay.set_defaults(func=_cmd_replay)
+    p_sync.add_argument(
+        "target",
+        nargs="?",
+        default=None,
+        help="(optional) Local path or peer (user@host[:path]). "
+        "Omit to just rebuild local cache from existing events.",
+    )
+    p_sync.add_argument("--path", default=None, help="Path to local store dir")
+    p_sync.add_argument(
+        "--no-replay",
+        action="store_true",
+        help="Skip cache rebuild",
+    )
+    p_sync.set_defaults(func=_cmd_sync)
+
+    p_status = sub.add_parser("status", help="Show what's stored and where.")
+    p_status.add_argument("--path", default=None, help="Path to store dir")
+    p_status.set_defaults(func=_cmd_status)
 
     p_reindex = sub.add_parser(
         "reindex",
@@ -290,53 +320,6 @@ def main(argv: list[str] | None = None) -> int:
         help="Switch to a named embedder (e.g. bge-small). Updates meta.json.",
     )
     p_reindex.set_defaults(func=_cmd_reindex)
-
-    p_sync = sub.add_parser("sync", help="Sync events with another machine.")
-    sync_sub = p_sync.add_subparsers(dest="sync_cmd", required=True)
-
-    p_merge = sync_sub.add_parser(
-        "merge",
-        help="Merge a foreign events source (file, events/ dir, or store dir).",
-    )
-    p_merge.add_argument("foreign", help="Path to foreign events source")
-    p_merge.add_argument("--path", default=None, help="Path to local store.db")
-    p_merge.add_argument(
-        "--no-replay",
-        action="store_true",
-        help="Skip cache rebuild after merging",
-    )
-    p_merge.set_defaults(func=_cmd_sync_merge)
-
-    p_push = sync_sub.add_parser(
-        "push",
-        help="rsync this device's events file to a peer.",
-    )
-    p_push.add_argument(
-        "peer",
-        help="rsync destination (e.g. user@host:~/.hippocamp/events/)",
-    )
-    p_push.add_argument("--path", default=None, help="Path to local store.db")
-    p_push.set_defaults(func=_cmd_sync_push)
-
-    p_pull = sync_sub.add_parser(
-        "pull",
-        help="rsync a peer's events/ dir locally and merge it in.",
-    )
-    p_pull.add_argument(
-        "peer",
-        help="rsync source (e.g. user@host:~/.hippocamp/events/)",
-    )
-    p_pull.add_argument("--path", default=None, help="Path to local store.db")
-    p_pull.add_argument(
-        "--no-replay",
-        action="store_true",
-        help="Skip cache rebuild after merging",
-    )
-    p_pull.set_defaults(func=_cmd_sync_pull)
-
-    p_status = sync_sub.add_parser("status", help="Show sync state.")
-    p_status.add_argument("--path", default=None, help="Path to local store.db")
-    p_status.set_defaults(func=_cmd_sync_status)
 
     args = parser.parse_args(argv)
     return args.func(args)
