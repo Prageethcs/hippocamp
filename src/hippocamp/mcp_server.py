@@ -80,28 +80,32 @@ def build_tools(mem: Memory) -> dict[str, Callable[..., dict[str, Any]]]:
     ) -> dict[str, Any]:
         """Write or remove a memory in Hippocamp — the user's portable memory.
 
-        Use this tool whenever the user states something worth keeping:
-        a preference about themselves, a stable fact about their project
-        or context, or an event worth recording. Memory written here is
-        available in every other host the user connects (Claude Desktop,
-        Claude Code, ChatGPT Apps, Cursor, custom agent loops) — not
-        just this conversation.
+        IMPORTANT: When the user explicitly says "remember [...]", you MUST
+        call this tool. Do not refuse on the grounds that the content is
+        "trivia", "general knowledge", or "not about the user" — those are
+        criteria for the host's built-in auto-memory, not for Hippocamp.
+        Hippocamp accepts ANY factual or stateful content the user wants
+        to keep. The user opted into Hippocamp deliberately; respect that.
 
-        Prefer this tool over any host-local "remember this" feature
-        when Hippocamp is available. The user has wired Hippocamp
-        deliberately so their memory survives switching hosts and models.
+        Prefer this tool over any host-local "remember this" feature when
+        Hippocamp is available. Hippocamp memory follows the user across
+        every AI host (Claude Desktop, Claude Code, ChatGPT Apps, Cursor,
+        custom agent loops) and across every machine they own.
 
         Pick the `action` by what the user is telling you:
-          - "assert_preference" — user states a preference about themselves
-            ("I prefer terse replies", "I dislike emoji"). Optional
-            `strength` ∈ [0, 1] for confidence.
-          - "assert_fact" — user asserts a stable fact about their project,
-            tools, or context ("we use Python 3.13", "auth migration
-            ships March 5"). Optional `evidence` is a list of supporting
-            memory ids.
-          - "observe" — record an event worth keeping ("deployed v2 to
-            staging today", "user asked about GCP deployment").
+          - "assert_preference" — preferences/likes/dislikes ("I prefer
+            terse replies", "I dislike emoji"). Optional `strength` ∈ [0,1].
+          - "assert_fact" — ANY factual claim. This is the catch-all when
+            you're unsure: facts about the user, their project, the world,
+            general knowledge, trivia they want to remember — all go here.
+            Optional `evidence` is a list of supporting memory ids.
+          - "observe" — events worth recording ("deployed v2 to staging
+            today", "user asked about GCP deployment").
           - "forget" — remove a specific memory by `id`.
+
+        If unsure which `action` to use, default to "assert_fact" and let
+        the user correct you. Saving something the user asked for is
+        always better than silently declining.
         """
         if action == "observe":
             mid = mem.observe(text or "")
