@@ -32,16 +32,24 @@ def _new_id() -> str:
     return uuid.uuid4().hex
 
 
-def load_or_init_meta(meta_path: Path, embedder_name: str) -> StoreMeta:
+def load_or_init_meta(
+    meta_path: Path,
+    embedder_name: str,
+    *,
+    force: bool = False,
+) -> StoreMeta:
     """Load `meta.json` if present, else create one. Reject embedder mismatch.
 
     A mismatch means another device wrote this store with a different
     embedder. Cross-device recall would be inconsistent until aligned, so
     we refuse to open the store rather than silently drift.
+
+    Pass `force=True` from `hippocamp reindex --embedder NEW` to bypass
+    the check during a deliberate embedder switch.
     """
     if meta_path.exists():
         meta = StoreMeta.model_validate_json(meta_path.read_text())
-        if meta.embedder != embedder_name:
+        if not force and meta.embedder != embedder_name:
             raise RuntimeError(
                 f"Embedder mismatch at {meta_path.parent}: store committed to "
                 f"{meta.embedder!r}, this client uses {embedder_name!r}. "
@@ -58,6 +66,14 @@ def load_or_init_meta(meta_path: Path, embedder_name: str) -> StoreMeta:
     meta_path.parent.mkdir(parents=True, exist_ok=True)
     meta_path.write_text(meta.model_dump_json(indent=2) + "\n")
     return meta
+
+
+def write_meta(meta_path: Path, meta: StoreMeta) -> None:
+    """Persist a meta object atomically."""
+    meta_path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = meta_path.with_suffix(meta_path.suffix + ".tmp")
+    tmp.write_text(meta.model_dump_json(indent=2) + "\n")
+    tmp.replace(meta_path)
 
 
 def load_or_init_device_id(device_path: Path | None = None) -> str:

@@ -22,7 +22,12 @@ from pathlib import Path
 from typing import Any, Callable, Iterable, Literal
 
 from hippocamp.events import Event, EventLog, EventOp, new_event_id
-from hippocamp.meta import StoreMeta, load_or_init_device_id, load_or_init_meta
+from hippocamp.meta import (
+    StoreMeta,
+    load_or_init_device_id,
+    load_or_init_meta,
+    write_meta,
+)
 from hippocamp.ranker import rank
 from hippocamp.store import Store
 from hippocamp.types import CompactReport, Inventory, RecallResult
@@ -61,6 +66,7 @@ class Memory:
         llm: Any | None = None,
         device_id: str | None = None,
         cache_dir: str | Path | None = None,
+        force_embedder: bool = False,
     ) -> None:
         if embedder is None:
             from hippocamp.embedders import default_embedder
@@ -97,7 +103,9 @@ class Memory:
         embedder_name = getattr(embedder, "name", type(embedder).__name__)
         meta_path = store_dir / "meta.json"
         meta_was_new = not meta_path.exists()
-        self._meta = load_or_init_meta(meta_path, embedder_name=embedder_name)
+        self._meta = load_or_init_meta(
+            meta_path, embedder_name=embedder_name, force=force_embedder
+        )
         self._device_id = device_id or load_or_init_device_id()
 
         # Resolve cache path: explicit arg > env > legacy file > OS default.
@@ -299,6 +307,40 @@ class Memory:
 
     def compact(self) -> CompactReport:
         return self._store.compact()
+
+    # ---------------------------------------------------------------- reindex
+
+    def reindex(self) -> int:
+        """Recompute embeddings for all active memories with the current embedder.
+
+        Updates `meta.json`'s embedder name if it has changed (i.e. the
+        caller opened with `force_embedder=True` to switch). Returns the
+        number of memories re-embedded.
+        """
+        if self._meta is None or self._store_dir is None:
+            raise RuntimeError("reindex() requires an on-disk store")
+
+        import json as _json
+
+        embedder_name = getattr(self._embedder, "name", type(self._embedder).__name__)
+
+        if embedder_name != self._meta.embedder:
+            self._meta.embedder = embedder_name
+            write_meta(self._store_dir / "meta.json", self._meta)
+
+        rows = self._store._conn.execute(
+            "SELECT id, text FROM memories WHERE superseded_at IS NULL"
+        ).fetchall()
+
+        n = 0
+        for row_id, text in rows:
+            new_emb = self._embedder(text or "")
+            self._store._conn.execute(
+                "UPDATE memories SET embedding = ? WHERE id = ?",
+                (_json.dumps(new_emb), row_id),
+            )
+            n += 1
+        return n
 
     # ----------------------------------------------------------------- replay
 

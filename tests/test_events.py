@@ -460,6 +460,67 @@ def test_cache_auto_replays_when_events_exist_but_cache_is_empty(tmp_path):
     assert inv.facts == 1
 
 
+# ----------------------------------------------------- reindex
+
+
+def test_reindex_recomputes_embeddings(tmp_path):
+    """Reindex should produce identical embeddings when embedder is unchanged."""
+    mem = _new_memory(tmp_path)
+    mem.observe("hello world")
+
+    original_emb = mem._store._conn.execute(
+        "SELECT embedding FROM memories"
+    ).fetchone()[0]
+
+    # Corrupt the embedding to simulate drift
+    mem._store._conn.execute(
+        "UPDATE memories SET embedding = '[0.0, 0.0, 0.0]'"
+    )
+
+    n = mem.reindex()
+    assert n == 1
+
+    restored = mem._store._conn.execute(
+        "SELECT embedding FROM memories"
+    ).fetchone()[0]
+    assert restored == original_emb
+
+
+def test_reindex_skips_superseded_memories(tmp_path):
+    mem = _new_memory(tmp_path)
+    old = mem.assert_fact("uses Python 3.12")
+    mem.assert_fact("uses Python 3.13", supersedes=[old])
+
+    n = mem.reindex()
+    assert n == 1  # only the active fact, not the superseded one
+
+
+def test_reindex_with_embedder_switch_updates_meta(tmp_path):
+    """Force-opening with a different embedder + reindex updates meta.json."""
+    mem = _new_memory(tmp_path)
+    mem.observe("first event")
+    mem.close()
+
+    # Force-reopen pretending to switch to a different embedder
+    class FakeEmbedder:
+        name = "fake-embedder-v1"
+        def __call__(self, text):
+            return [0.5] * 32
+
+    mem2 = Memory(
+        path=str(tmp_path / "store.db"),
+        embedder=FakeEmbedder(),
+        device_id="dev_test",
+        force_embedder=True,
+    )
+    mem2.reindex()
+    assert mem2.meta.embedder == "fake-embedder-v1"
+
+    # On-disk meta.json reflects the change
+    meta_data = json.loads((tmp_path / "meta.json").read_text())
+    assert meta_data["embedder"] == "fake-embedder-v1"
+
+
 # ----------------------------------------------------- in-memory mode
 
 

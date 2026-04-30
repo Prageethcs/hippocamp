@@ -88,6 +88,46 @@ def _cmd_replay(args: argparse.Namespace) -> int:
     return 0
 
 
+def _resolve_embedder(name: str | None):
+    """Look up a named embedder. Add new ones here as they're added."""
+    if name is None:
+        return None
+    name_lc = name.lower()
+    if name_lc in ("bge-small", "bge-small-en", "bge-small-en-v1.5"):
+        from hippocamp.embedders import BgeSmallEmbedder
+        return BgeSmallEmbedder()
+    if name_lc in ("hash", "hash-32"):
+        from hippocamp.embedders import HashEmbedder
+        return HashEmbedder()
+    raise ValueError(f"unknown embedder: {name!r}")
+
+
+def _cmd_reindex(args: argparse.Namespace) -> int:
+    path = _resolve_path(args.path)
+    if not path.exists():
+        print(f"hippocamp: no store found at {path}", file=sys.stderr)
+        return 1
+
+    try:
+        embedder = _resolve_embedder(args.embedder)
+    except ValueError as e:
+        print(f"hippocamp: {e}", file=sys.stderr)
+        return 1
+
+    mem = Memory(
+        path=str(path),
+        embedder=embedder,
+        force_embedder=embedder is not None,
+    )
+    if mem.events_dir is None:
+        print("hippocamp: cannot reindex an in-memory store", file=sys.stderr)
+        return 1
+
+    n = mem.reindex()
+    print(f"reindexed {n} memories with embedder {mem.meta.embedder!r}")
+    return 0
+
+
 def _cmd_sync_merge(args: argparse.Namespace) -> int:
     mem = _open_memory(args.path)
     if mem.events_dir is None or mem.meta is None:
@@ -238,6 +278,18 @@ def main(argv: list[str] | None = None) -> int:
     )
     p_replay.add_argument("--path", default=None, help="Path to store.db")
     p_replay.set_defaults(func=_cmd_replay)
+
+    p_reindex = sub.add_parser(
+        "reindex",
+        help="Recompute embeddings for all active memories.",
+    )
+    p_reindex.add_argument("--path", default=None, help="Path to the store dir")
+    p_reindex.add_argument(
+        "--embedder",
+        default=None,
+        help="Switch to a named embedder (e.g. bge-small). Updates meta.json.",
+    )
+    p_reindex.set_defaults(func=_cmd_reindex)
 
     p_sync = sub.add_parser("sync", help="Sync events with another machine.")
     sync_sub = p_sync.add_subparsers(dest="sync_cmd", required=True)
