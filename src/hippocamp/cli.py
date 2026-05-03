@@ -236,6 +236,67 @@ def _sync_remote(mem, peer: str, *, no_replay: bool) -> int:
     return 0
 
 
+def _cmd_reflect(args: argparse.Namespace) -> int:
+    path = _resolve_path(args.path)
+    if not path.exists():
+        print(f"hippocamp: no store found at {path}", file=sys.stderr)
+        return 1
+
+    try:
+        llm = _resolve_llm(args.llm)
+    except (ValueError, RuntimeError) as e:
+        print(f"hippocamp: {e}", file=sys.stderr)
+        return 1
+
+    mem = Memory(path=str(path), llm=llm)
+    try:
+        report = mem.reflect(since=args.since)
+    except RuntimeError as e:
+        print(f"hippocamp: {e}", file=sys.stderr)
+        return 1
+
+    print(json.dumps(report.model_dump(), indent=2, default=str))
+    return 0
+
+
+def _resolve_llm(name: str | None):
+    """Look up a named LLM adapter. Default: anthropic Claude Haiku.
+
+    Hippocamp ships a thin Anthropic adapter; users wanting a different
+    provider should call `Memory(llm=...)` from Python directly.
+    """
+    name = (name or "anthropic").lower()
+    if name in ("anthropic", "claude"):
+        try:
+            import anthropic  # type: ignore
+        except ImportError as e:
+            raise RuntimeError(
+                "hippocamp[llm] not installed. Run: pip install 'hippocamp[llm]'"
+            ) from e
+
+        api_key = os.environ.get("ANTHROPIC_API_KEY")
+        if not api_key:
+            raise RuntimeError("ANTHROPIC_API_KEY not set in environment")
+
+        client = anthropic.Anthropic(api_key=api_key)
+
+        class _AnthropicLLM:
+            def complete(self, prompt: str, *, system: str | None = None) -> str:
+                msg = client.messages.create(
+                    model="claude-haiku-4-5-20251001",
+                    max_tokens=4096,
+                    system=system or "",
+                    messages=[{"role": "user", "content": prompt}],
+                )
+                # Concatenate all text blocks
+                return "".join(
+                    block.text for block in msg.content if hasattr(block, "text")
+                )
+
+        return _AnthropicLLM()
+    raise ValueError(f"unknown llm: {name!r}")
+
+
 def _cmd_status(args: argparse.Namespace) -> int:
     mem = _open_memory(args.path)
     if mem.events_dir is None:
@@ -370,6 +431,24 @@ def main(argv: list[str] | None = None) -> int:
         help="Switch to a named embedder (e.g. bge-small). Updates meta.json.",
     )
     p_reindex.set_defaults(func=_cmd_reindex)
+
+    p_reflect = sub.add_parser(
+        "reflect",
+        help="Distil recent episodes into facts/preferences/reflections via an LLM.",
+    )
+    p_reflect.add_argument("--path", default=None, help="Path to the store dir")
+    p_reflect.add_argument(
+        "--since",
+        default=None,
+        help="ISO timestamp cutoff. Default: meta.last_reflect_at, else now-7d.",
+    )
+    p_reflect.add_argument(
+        "--llm",
+        default="anthropic",
+        help="LLM adapter to use. Currently: 'anthropic' (default). "
+        "Set ANTHROPIC_API_KEY in environment.",
+    )
+    p_reflect.set_defaults(func=_cmd_reflect)
 
     args = parser.parse_args(argv)
     return args.func(args)

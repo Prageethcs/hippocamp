@@ -27,6 +27,7 @@ class EventOp(str, Enum):
     OBSERVE = "observe"
     ASSERT_FACT = "assert_fact"
     ASSERT_PREF = "assert_pref"
+    ASSERT_REFLECTION = "assert_reflection"
     FORGET = "forget"
 
 
@@ -44,6 +45,7 @@ class Event(BaseModel):
     evidence: list[str] = Field(default_factory=list)
     strength: float | None = None
     supersedes: list[str] = Field(default_factory=list)
+    sources: list[str] = Field(default_factory=list)
 
 
 def new_event_id() -> str:

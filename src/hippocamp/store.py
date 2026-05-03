@@ -145,6 +145,34 @@ class Store:
         """Drop all rows. Used by `Memory.replay()` before rebuilding."""
         self._conn.execute("DELETE FROM memories")
 
+    def episodes_since(self, cutoff: datetime, *, limit: int) -> list[RawRow]:
+        """Active episodes created at or after `cutoff`, oldest first.
+
+        Used by `reflect()` to find episodes that arrived since the last
+        consolidation pass.
+        """
+        rows = self._conn.execute(
+            "SELECT id, kind, text, created_at, last_seen_at, salience, "
+            "metadata, embedding FROM memories "
+            "WHERE kind = 'episode' AND superseded_at IS NULL "
+            "AND created_at >= ? "
+            "ORDER BY created_at ASC LIMIT ?",
+            (cutoff.isoformat(), limit),
+        ).fetchall()
+        return [
+            RawRow(
+                id=r[0],
+                kind=r[1],
+                text=r[2],
+                created_at=datetime.fromisoformat(r[3]),
+                last_seen_at=datetime.fromisoformat(r[4]),
+                salience=r[5],
+                metadata=json.loads(r[6]),
+                embedding=json.loads(r[7]),
+            )
+            for r in rows
+        ]
+
     def list_active_before(self, cutoff: datetime) -> list[str]:
         """Ids of active (non-superseded) memories created before `cutoff`."""
         rows = self._conn.execute(

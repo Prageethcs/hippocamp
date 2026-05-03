@@ -257,6 +257,26 @@ class Memory:
         )
         return pid
 
+    def assert_reflection(self, text: str, *, sources: list[str] | None = None) -> str:
+        rid = _new_id("re")
+        when = _now()
+        self._emit(
+            EventOp.ASSERT_REFLECTION,
+            mem_id=rid,
+            ts=when,
+            text=text,
+            sources=sources or [],
+        )
+        self._store.insert(
+            id=rid,
+            kind="reflection",
+            text=text,
+            created_at=when,
+            metadata={"sources": sources or []},
+            embedding=self._embedder(text),
+        )
+        return rid
+
     # ------------------------------------------------------------------- read
 
     def recall(
@@ -289,7 +309,19 @@ class Memory:
             raise RuntimeError("reflect() requires an llm; pass `llm=...` to Memory()")
         from hippocamp.reflect import run_reflection
 
-        return run_reflection(self._store, self._llm, since=since)
+        return run_reflection(self, self._llm, since=since)
+
+    @property
+    def last_reflect_at(self) -> datetime | None:
+        """When `reflect()` was last completed against this store. None if never."""
+        return self._meta.last_reflect_at if self._meta is not None else None
+
+    def set_last_reflect_at(self, when: datetime) -> None:
+        """Persist the reflect cutoff to meta.json. No-op for in-memory stores."""
+        if self._meta is None or self._store_dir is None:
+            return
+        self._meta.last_reflect_at = when
+        write_meta(self._store_dir / "meta.json", self._meta)
 
     # ----------------------------------------------------------------- forget
 
@@ -363,7 +395,9 @@ class Memory:
     # ---------------------------------------------------------------- inspect
 
     def inspect(self) -> Inventory:
-        return self._store.inventory()
+        inv = self._store.inventory()
+        inv.last_reflect = self.last_reflect_at
+        return inv
 
     # --------------------------------------------------------------- lifecycle
 
@@ -536,6 +570,15 @@ class Memory:
                 text=event.text or "",
                 created_at=event.ts,
                 metadata={"strength": event.strength or 1.0},
+                embedding=self._embedder(event.text or ""),
+            )
+        elif event.op == EventOp.ASSERT_REFLECTION:
+            self._store.insert(
+                id=event.mem_id,
+                kind="reflection",
+                text=event.text or "",
+                created_at=event.ts,
+                metadata={"sources": event.sources},
                 embedding=self._embedder(event.text or ""),
             )
         elif event.op == EventOp.FORGET:

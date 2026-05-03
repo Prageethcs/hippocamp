@@ -26,6 +26,7 @@ class StoreMeta(BaseModel):
     store_id: str
     schema_version: int = SCHEMA_VERSION
     created_at: datetime
+    last_reflect_at: datetime | None = None
 
 
 def _new_id() -> str:
