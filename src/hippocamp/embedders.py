@@ -1,9 +1,10 @@
 """Embedders turn text into fixed-size float vectors.
 
 `HashEmbedder` is a deterministic stub for tests and CI.
-`BgeSmallEmbedder` runs a real local sentence-transformers model.
-`default_embedder()` picks the best available — real model if installed,
-else the stub with a warning.
+`BgeSmallEmbedder` runs a small local sentence-transformers model.
+`Qwen3Embedder` runs a larger, higher-quality local model.
+`default_embedder()` picks the best available — Qwen if installed,
+else BGE-small, else the stub with a warning.
 """
 
 from __future__ import annotations
@@ -59,8 +60,38 @@ class BgeSmallEmbedder:
         return vec.tolist()
 
 
+class Qwen3Embedder:
+    """Local sentence-transformers embedder (Qwen/Qwen3-Embedding-0.6B).
+
+    Produces 1024-dim normalized vectors. First call downloads the model
+    (~1.2GB) to the HuggingFace cache. Higher recall quality than BGE-small
+    on harder retrieval cases (vocabulary mismatch, inferential matching).
+    """
+
+    name = "Qwen3-Embedding-0.6B"
+    dim = 1024
+
+    def __init__(self, model_id: str = "Qwen/Qwen3-Embedding-0.6B") -> None:
+        try:
+            from sentence_transformers import SentenceTransformer
+        except ImportError as e:
+            raise ImportError(
+                "Qwen3Embedder requires sentence-transformers. "
+                "Install with: pip install 'hippocamp[embeddings]'"
+            ) from e
+        self._model = SentenceTransformer(model_id)
+
+    def __call__(self, text: str) -> list[float]:
+        vec = self._model.encode(text, normalize_embeddings=True)
+        return vec.tolist()
+
+
 def default_embedder() -> Embedder:
     """Return the best available embedder, with a warning if falling back."""
+    try:
+        return Qwen3Embedder()
+    except ImportError:
+        pass
     try:
         return BgeSmallEmbedder()
     except ImportError:

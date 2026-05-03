@@ -84,8 +84,11 @@ def _recency_decay(created_at: datetime, now: datetime) -> float:
     return 0.5 ** (age_days / RECENCY_HALFLIFE_DAYS)
 
 
+SALIENCE_CAP = 0.2
+
+
 def _salience_factor(salience: float) -> float:
-    return math.log1p(max(0.0, salience))
+    return min(math.log1p(max(0.0, salience)), SALIENCE_CAP)
 
 
 def _compose_note(sim: float, rec: float, kb: float, sal: float) -> str:

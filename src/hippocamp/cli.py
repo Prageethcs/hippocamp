@@ -106,6 +106,9 @@ def _resolve_embedder(name: str | None):
     if name is None:
         return None
     name_lc = name.lower()
+    if name_lc in ("qwen", "qwen3", "qwen3-embedding-0.6b"):
+        from hippocamp.embedders import Qwen3Embedder
+        return Qwen3Embedder()
     if name_lc in ("bge-small", "bge-small-en", "bge-small-en-v1.5"):
         from hippocamp.embedders import BgeSmallEmbedder
         return BgeSmallEmbedder()
