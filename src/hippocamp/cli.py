@@ -267,33 +267,8 @@ def _resolve_llm(name: str | None):
     """
     name = (name or "anthropic").lower()
     if name in ("anthropic", "claude"):
-        try:
-            import anthropic  # type: ignore
-        except ImportError as e:
-            raise RuntimeError(
-                "hippocamp[llm] not installed. Run: pip install 'hippocamp[llm]'"
-            ) from e
-
-        api_key = os.environ.get("ANTHROPIC_API_KEY")
-        if not api_key:
-            raise RuntimeError("ANTHROPIC_API_KEY not set in environment")
-
-        client = anthropic.Anthropic(api_key=api_key)
-
-        class _AnthropicLLM:
-            def complete(self, prompt: str, *, system: str | None = None) -> str:
-                msg = client.messages.create(
-                    model="claude-haiku-4-5-20251001",
-                    max_tokens=4096,
-                    system=system or "",
-                    messages=[{"role": "user", "content": prompt}],
-                )
-                # Concatenate all text blocks
-                return "".join(
-                    block.text for block in msg.content if hasattr(block, "text")
-                )
-
-        return _AnthropicLLM()
+        from hippocamp.reflect import default_anthropic_llm
+        return default_anthropic_llm()
     raise ValueError(f"unknown llm: {name!r}")
 
 

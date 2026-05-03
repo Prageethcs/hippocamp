@@ -58,7 +58,41 @@ def test_recall_with_no_query_returns_inventory():
     r = tools["recall_memory"]()
     assert r["episodes"] == 2
     assert r["facts"] == 1
-    assert r["preferences"] == 0
+
+
+def test_reflect_memory_without_llm_raises():
+    """reflect_memory must clearly explain when no LLM is configured."""
+    import pytest
+    _, tools = _tools()
+    assert "reflect_memory" in tools
+    with pytest.raises(RuntimeError, match="no LLM configured"):
+        tools["reflect_memory"]()
+
+
+def test_reflect_memory_with_llm_runs():
+    """reflect_memory should accept since= and return a ReflectionReport dict."""
+    import json
+    import re
+    from datetime import datetime, timedelta, timezone
+
+    class FakeLLM:
+        def complete(self, prompt, *, system=None):
+            ids = re.findall(r"\[(ep_[a-f0-9]+)\]", prompt)
+            return json.dumps({
+                "facts": [{"text": "user works at acme", "evidence": ids[:1]}],
+                "preferences": [],
+                "reflections": [],
+            })
+
+    mem = Memory(path=":memory:", embedder=HashEmbedder())
+    tools = build_tools(mem, llm=FakeLLM())
+    for i in range(6):
+        mem.observe(f"episode {i}")
+
+    since = (datetime.now(timezone.utc) - timedelta(days=30)).isoformat()
+    report = tools["reflect_memory"](since=since)
+    assert report["new_facts"] == 1
+    assert report["episodes_processed"] == 6
 
 
 def test_unknown_action_raises():

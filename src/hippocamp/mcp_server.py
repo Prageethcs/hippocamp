@@ -26,11 +26,20 @@ DEFAULT_PATH = Path(
 )
 
 
-def build_tools(mem: Memory) -> dict[str, Callable[..., dict[str, Any]]]:
+def build_tools(
+    mem: Memory,
+    *,
+    llm: Any = None,
+) -> dict[str, Callable[..., dict[str, Any]]]:
     """Build the MCP tool callables bound to a Memory instance.
 
     Exposed at module level so tests can drive the same handlers the
     MCP host calls, without spinning up a real MCP transport.
+
+    If `llm` is provided, the `reflect_memory` tool is exposed; otherwise
+    it raises a clear error when called. `Memory(llm=...)` would also
+    work, but threading the LLM through `build_tools` keeps the tool
+    surface composable for tests.
     """
 
     def recall_memory(
@@ -133,12 +142,66 @@ def build_tools(mem: Memory) -> dict[str, Callable[..., dict[str, Any]]]:
 
         return {"ok": True, "id": mid, "action": action}
 
-    return {"recall_memory": recall_memory, "update_memory": update_memory}
+    def reflect_memory(since: str | None = None) -> dict[str, Any]:
+        """Distil recent episodes into facts/preferences/reflections.
+
+        Use this tool RARELY — typically not in response to a single user
+        message. Reflection is a background hygiene operation that scans
+        recent episodes, extracts durable user-modelling content via an
+        LLM, and writes it back as facts/preferences/reflections so future
+        recall surfaces clean signal instead of raw episode noise.
+
+        Call when:
+          - The user explicitly asks ("consolidate my memory", "refresh
+            what you know about me", "summarise recent context").
+          - Driven by a cron / launchd / scheduler running on a fixed
+            cadence (typical pattern: every 6 h).
+
+        Skip when:
+          - You're handling a normal conversational turn — recall_memory
+            is the right tool, not reflect_memory.
+          - The store has fewer than ~5 new episodes since the last pass
+            (reflect will skip anyway, but you save the round-trip).
+
+        Pass `since` (ISO 8601) to control the cutoff. Default: the
+        store's `last_reflect_at` if recorded, else 7 days ago.
+
+        Requires the server to be configured with an LLM. If not, the
+        tool raises a clear error explaining how to enable it.
+        """
+        if llm is None:
+            raise RuntimeError(
+                "reflect_memory is unavailable: the MCP server has no LLM "
+                "configured. Set ANTHROPIC_API_KEY in the server env, or "
+                "build_tools(mem, llm=...) explicitly."
+            )
+        # Pass through to Memory.reflect — but inject our own llm in case
+        # the Memory was built without one.
+        if mem._llm is None:
+            mem._llm = llm  # type: ignore[attr-defined]
+        report = mem.reflect(since=since)
+        return report.model_dump()
+
+    return {
+        "recall_memory": recall_memory,
+        "update_memory": update_memory,
+        "reflect_memory": reflect_memory,
+    }
 
 
 def main() -> None:
     DEFAULT_PATH.mkdir(parents=True, exist_ok=True)
     mem = Memory(path=str(DEFAULT_PATH))
+
+    # Lazy LLM init: only used by reflect_memory. Server starts fine
+    # without one — the tool just raises a clear error if called.
+    llm: Any = None
+    if os.environ.get("ANTHROPIC_API_KEY"):
+        try:
+            from hippocamp.reflect import default_anthropic_llm
+            llm = default_anthropic_llm()
+        except RuntimeError:
+            llm = None  # missing extras / key — silently fall back
 
     try:
         from mcp.server.fastmcp import FastMCP
@@ -148,7 +211,7 @@ def main() -> None:
         ) from e
 
     server = FastMCP("hippocamp")
-    for name, fn in build_tools(mem).items():
+    for name, fn in build_tools(mem, llm=llm).items():
         server.tool(name=name)(fn)
     server.run()
 
