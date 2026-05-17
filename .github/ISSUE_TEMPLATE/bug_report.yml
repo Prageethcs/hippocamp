@@ -1,0 +1,78 @@
+name: Bug report
+description: Something isn't working as expected
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a bug! Please fill in as much as you can — concrete repro steps make fixes faster.
+
+        **Security issue?** Don't open a public issue. See [SECURITY.md](../blob/main/SECURITY.md) for the disclosure process.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What did you expect, and what actually happened?
+      placeholder: |
+        Expected: `mem.recall("python")` returns the GCP episode I observed earlier.
+        Actual: returns an empty list.
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: Reproduction
+      description: Minimal steps or code to reproduce. A short Python snippet is ideal.
+      render: python
+      placeholder: |
+        import hippocamp as hc
+        mem = hc.Memory(path=":memory:")
+        mem.observe("user wants to deploy to GCP")
+        print(mem.recall("python"))
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Hippocamp version
+      description: Output of `hippocamp --version` or `pip show hippocamp | grep Version`.
+      placeholder: "0.5.0"
+    validations:
+      required: true
+
+  - type: input
+    id: python
+    attributes:
+      label: Python version
+      placeholder: "3.13"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: OS
+      options:
+        - macOS
+        - Linux
+        - Windows
+        - Other
+    validations:
+      required: true
+
+  - type: input
+    id: host
+    attributes:
+      label: AI host (if relevant)
+      description: Claude Code, Claude Desktop, Cursor, ChatGPT Apps, Gemini CLI, custom agent, or N/A.
+      placeholder: "Claude Code"
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs / traceback
+      description: Any error output. Wrap in triple backticks.
+      render: shell
