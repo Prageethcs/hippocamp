@@ -2,6 +2,8 @@
 
 Thanks for your interest! Hippocamp is a small, focused project, and contributions of any size — bug reports, doc fixes, features — are welcome.
 
+Please read the [Code of Conduct](CODE_OF_CONDUCT.md) before contributing. By participating, you agree to abide by it.
+
 ## Dev setup
 
 Hippocamp uses [`uv`](https://docs.astral.sh/uv/) for dependency management. The committed `uv.lock` pins exact versions so installs are reproducible.
