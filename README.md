@@ -1,8 +1,29 @@
 # Hippocamp
 
-**Memory that follows you across every AI and every machine.**
+**Tiered memory for AI — episodes, facts, preferences, reflections. Local. Portable. Yours.**
 
 Tell Claude something on your laptop, recall it from Cursor on your desktop. Mention a preference to ChatGPT, your custom agent will know it too. Your memory is yours, runs locally, syncs everywhere.
+
+## Why this exists
+
+Most AI memory is a flat bag of strings — every "thing remembered" treated the same, ranked against everything else by raw similarity. That collapses fast under real use: a passing chat from last Tuesday, a stable fact about your job, and "the user prefers terse replies" all compete on the same axis.
+
+**Hippocamp models memory the way cognition does — distinct kinds, distinct semantics:**
+
+- **Episodes** — what happened, timestamped.
+- **Facts** — what is true (about the user, the project, the world).
+- **Preferences** — what the user wants, with a strength.
+- **Reflections** — higher-order patterns the system distils across many episodes via an LLM (consolidation, via `reflect`).
+
+Each kind has its own retrieval weight, its own decay curve, its own supersession rules. Recall a fact and you get the *latest* assertion (older ones are superseded). Recall an event and recency dominates. Recall a reflection and you get a pattern that spans weeks. Every result comes back with a **why-trace** — similarity + recency + kind-boost + salience — so you (and the model) can see exactly why a memory ranked where it did.
+
+And it's local. ChatGPT's memory works only in ChatGPT; Claude Code's only in Claude Code; cloud agent-memory services (Mem0, Zep, Letta) put your data on their servers. Hippocamp lives in a directory you control, and any AI that speaks MCP can read or write it — so the same tiered memory follows you across every host and every machine you own.
+
+The supporting wedges:
+
+- **First-class forgetting** — supersedence, TTL, and tombstones are features, not afterthoughts.
+- **Conflict-free sync** — each device writes to `events/<device_id>.jsonl`, so no two machines ever touch the same file. Every cloud-sync service handles this safely by definition.
+- **Local-first** — the SQLite index lives on each machine; `events/` is the portable source of truth. Wipe the cache anytime; `hippocamp sync` rebuilds it.
 
 ---
 
@@ -51,9 +72,22 @@ Once wired up, Claude uses Hippocamp **proactively** — not just when you say "
 
 If something gets saved that you don't want, just say *"forget that"* in conversation — Claude calls the forget action. Or run `hippocamp inspect` to see everything stored.
 
+## Consolidation (reflect)
+
+Raw episodes pile up fast. Periodically Hippocamp runs an LLM pass that reads recent episodes, distils out the durable user-modelling content (facts, preferences, higher-order reflections), and writes it back. Near-duplicate facts are *superseded*, not duplicated — so recall surfaces clean signal instead of noisy repetition.
+
+Run it on demand, or on a cron:
+
+```bash
+hippocamp reflect                     # uses meta.last_reflect_at as cutoff
+hippocamp reflect --since 2026-05-01  # explicit cutoff
+```
+
+Requires an LLM. The bundled adapter calls Anthropic — install with `pip install 'hippocamp[llm]'` and set `ANTHROPIC_API_KEY`. Or pass any object with a `complete(prompt, *, system) -> str` method via `Memory(llm=...)`. The MCP `reflect_memory` tool is also auto-exposed when the server boots with `ANTHROPIC_API_KEY` set, so Claude can call it directly when you ask to "consolidate" or "refresh what you know about me".
+
 ## What just happened
 
-Each AI you wired up now has two new tools — `recall_memory` and `update_memory` — that read and write a private SQLite database on your machine. Memory is *yours*: never sent to a third party, portable across every AI, lives on every device you own.
+Each AI you wired up now has three new tools — `recall_memory`, `update_memory`, and `reflect_memory` — that read and write a private SQLite database on your machine. Memory is *yours*: never sent to a third party, portable across every AI, lives on every device you own.
 
 ```
 ~/Dropbox/Hippocamp/         ← cloud-synced (the data — meta + per-device events)
@@ -80,6 +114,9 @@ hippocamp instructions                # print the directive (full)
 hippocamp instructions --short        # compact version (paste into Claude Desktop / ChatGPT custom instructions)
 
 hippocamp reindex [--embedder NAME]   # recompute embeddings (after a model swap)
+
+hippocamp reflect                     # consolidate recent episodes (requires LLM)
+hippocamp reflect --since <iso-ts>    # explicit cutoff instead of meta.last_reflect_at
 ```
 
 `hippocamp sync` is one smart command — give it a local path (USB stick, downloaded folder, anything), an SSH peer (`user@desktop.local`), or no argument at all (just rebuild the cache from whatever Dropbox/iCloud/Syncthing has dropped into your events directory). Memory ends up consistent either way.
@@ -117,23 +154,9 @@ hippocamp setup claude --project-instructions ~/projects/myapp
 # → also writes ~/projects/myapp/CLAUDE.md with the same block
 ```
 
-## Why this exists
-
-Most AI memory today is locked: ChatGPT's memory works only in ChatGPT, on whatever device you're on. Claude Code's memory works only in Claude Code. Cloud agent-memory services (Mem0, Zep, Letta) want your data on their servers.
-
-Hippocamp inverts that. **Your memory lives on your machine, in a directory you control, and any AI that speaks MCP can read or write it.** Switch hosts; your memory is still there. Switch laptops; your memory is still there. The lock-in disappears.
-
-The technical wedges:
-
-- **Tiered memory** — episodes / facts / preferences are stored separately, so retrieval can use the right semantics for each.
-- **Why-trace** — every recall comes back with a breakdown of *why* the result ranked where it did (similarity + recency + kind-boost + salience).
-- **First-class forgetting** — supersedence, TTL, and tombstones are features, not afterthoughts.
-- **Conflict-free sync** — each device writes to `events/<device_id>.jsonl`, so no two machines ever touch the same file. Every cloud-sync service handles this safely by definition.
-- **Local-first** — the SQLite index lives on each machine; `events/` is the portable source of truth. Wipe the cache anytime; `hippocamp sync` rebuilds it.
-
 ## Status
 
-**v0.3.4 (alpha).** Architecture stable. Ambient memory is live on Claude Code (the directive auto-installs into `~/.claude/CLAUDE.md`); Claude Desktop requires a one-time paste from `hippocamp instructions --short` into Settings → Profile. One `hippocamp setup claude` command configures Claude Code and Claude Desktop together when both are installed. Cross-machine sync works through any file-sync tool you already use (iCloud, Dropbox, Syncthing, rsync, git). **Roadmap to v1.0:** `reflect()` consolidation pass, encryption at rest, event-log compaction / snapshotting, HTTP/SSE transport for self-hosted always-on stores.
+**v0.5.0 (alpha).** Architecture stable. Ambient memory is live on Claude Code (the directive auto-installs into `~/.claude/CLAUDE.md`); Claude Desktop requires a one-time paste from `hippocamp instructions --short` into Settings → Profile. One `hippocamp setup claude` command configures Claude Code and Claude Desktop together when both are installed. LLM-driven consolidation (`reflect`) ships in this release. Cross-machine sync works through any file-sync tool you already use (iCloud, Dropbox, Syncthing, rsync, git). **Roadmap to v1.0:** encryption at rest, event-log compaction / snapshotting, HTTP/SSE transport for self-hosted always-on stores.
 
 ## License
 
