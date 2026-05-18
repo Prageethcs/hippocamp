@@ -11,7 +11,7 @@ from hippocamp.embedders import BgeSmallEmbedder
 from hippocamp.memory import Memory
 
 
-# Mirrors the live store + the synthetic batch from the prior test.
+# Synthetic corpus mirroring a realistic mixed-domain memory store.
 EXISTING_FACTS = [
     "Alex is Sam's colleague. They have worked together since April 2026.",
     'User uses another personal assistant called "AcmeAssist" — some Hippocamp facts (e.g. about Alex) originated there, demonstrating Hippocamp\'s portability across hosts.',

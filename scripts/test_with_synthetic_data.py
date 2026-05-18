@@ -1,4 +1,4 @@
-"""Add synthetic memories to live store, run recall comparisons, then clean up.
+"""Add synthetic memories to the default store, run recall comparisons, then clean up.
 
 Forget tombstones in the cache (won't surface in recall). Forget events stay
 in the events log — that's the intended audit trail. Run `replay()` if you
@@ -11,7 +11,7 @@ from hippocamp.memory import Memory
 
 
 SYNTHETIC_FACTS = [
-    # Family / Alex
+    # Generic personal/work facts
     "Alex enjoys playing chess in addition to crosswords.",
     "Alex started a new role at Acme Corp in September 2025.",
     "Alex's favorite color is blue.",
@@ -42,7 +42,7 @@ SYNTHETIC_PREFS = [
 QUERIES = [
     "what does Alex enjoy",
     "Alex's hobbies",
-    "user's colleagues",
+    "user's interests",
     "what editor does Sam use",
     "where is the Eiffel Tower",
     "what does Sam prefer for code",
@@ -58,7 +58,7 @@ def fmt(r) -> str:
 
 
 def main() -> None:
-    mem = Memory(path="~/.hippocamp")
+    mem = Memory()
 
     before = mem.inspect()
     print(f"baseline inventory: {before.episodes}ep / {before.facts}fa / {before.preferences}pr")
