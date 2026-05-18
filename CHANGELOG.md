@@ -4,13 +4,13 @@ All notable changes to Hippocamp are documented here. The format is based on [Ke
 
 ## [Unreleased]
 
-## [0.5.5] — 2026-05
+## [0.6.0] — 2026-05
+
+Patch-level release in spirit — bumped to 0.6.0 only because 0.5.3, 0.5.4, and 0.5.5 were all blocked on PyPI by earlier (deleted) uploads. No new features or breaking changes.
 
 ### Fixed
 - `hippocamp --version` reported `0.3.4` regardless of installed version. `__version__` now reads from package metadata (`importlib.metadata.version`), so `pyproject.toml` is the single source of truth.
 - `hippocamp-mcp --help` previously loaded the BGE embedder before printing help. Now uses `argparse` so `--help` / `--version` short-circuit before any heavy initialisation. Adds `--version` to the MCP entry point.
-
-(0.5.3 and 0.5.4 were skipped — both filenames were reserved on PyPI by earlier uploads.)
 
 ## [0.5.2] — 2026-05
 
@@ -76,8 +76,8 @@ All notable changes to Hippocamp are documented here. The format is based on [Ke
 ### Added
 - Initial alpha. Tiered memory (episodes / facts / preferences), why-trace recall, first-class forgetting (supersedence + TTL + tombstones), SQLite backend, MCP server with `recall_memory` and `update_memory`, `hippocamp` CLI with `setup`/`inspect`.
 
-[Unreleased]: https://github.com/Prageethcs/hippocamp/compare/v0.5.5...HEAD
-[0.5.5]: https://github.com/Prageethcs/hippocamp/releases/tag/v0.5.5
+[Unreleased]: https://github.com/Prageethcs/hippocamp/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/Prageethcs/hippocamp/releases/tag/v0.6.0
 [0.5.2]: https://github.com/Prageethcs/hippocamp/releases/tag/v0.5.2
 [0.5.1]: https://github.com/Prageethcs/hippocamp/releases/tag/v0.5.1
 [0.5.0]: https://github.com/Prageethcs/hippocamp/releases/tag/v0.5.0
