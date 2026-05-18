@@ -4,9 +4,11 @@ All notable changes to Hippocamp are documented here. The format is based on [Ke
 
 ## [Unreleased]
 
+## [0.5.1] — 2026-05
+
 ### Added
 - GitHub Actions CI: pytest matrix on Python 3.11/3.12/3.13.
-- `CONTRIBUTING.md`, `CHANGELOG.md`, issue/PR templates.
+- `CONTRIBUTING.md`, `CHANGELOG.md`, `CODE_OF_CONDUCT.md`, `SECURITY.md`, issue/PR templates.
 
 ## [0.5.0] — 2026-05
 
@@ -61,7 +63,8 @@ All notable changes to Hippocamp are documented here. The format is based on [Ke
 ### Added
 - Initial alpha. Tiered memory (episodes / facts / preferences), why-trace recall, first-class forgetting (supersedence + TTL + tombstones), SQLite backend, MCP server with `recall_memory` and `update_memory`, `hippocamp` CLI with `setup`/`inspect`.
 
-[Unreleased]: https://github.com/Prageethcs/hippocamp/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/Prageethcs/hippocamp/compare/v0.5.1...HEAD
+[0.5.1]: https://github.com/Prageethcs/hippocamp/releases/tag/v0.5.1
 [0.5.0]: https://github.com/Prageethcs/hippocamp/releases/tag/v0.5.0
 [0.4.0]: https://github.com/Prageethcs/hippocamp/releases/tag/v0.4.0
 [0.3.4]: https://github.com/Prageethcs/hippocamp/releases/tag/v0.3.4
