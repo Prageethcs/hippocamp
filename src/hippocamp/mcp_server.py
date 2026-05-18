@@ -15,10 +15,12 @@ ever leaves the user's machine.
 
 from __future__ import annotations
 
+import argparse
 import os
 from pathlib import Path
 from typing import Any, Callable
 
+from hippocamp import __version__
 from hippocamp.memory import Memory
 
 DEFAULT_PATH = Path(
@@ -190,6 +192,20 @@ def build_tools(
 
 
 def main() -> None:
+    parser = argparse.ArgumentParser(
+        prog="hippocamp-mcp",
+        description=(
+            "Hippocamp MCP server — exposes recall_memory, update_memory, "
+            "and reflect_memory tools over stdio."
+        ),
+    )
+    parser.add_argument(
+        "--version",
+        action="version",
+        version=f"hippocamp-mcp {__version__}",
+    )
+    parser.parse_args()
+
     DEFAULT_PATH.mkdir(parents=True, exist_ok=True)
     mem = Memory(path=str(DEFAULT_PATH))
 

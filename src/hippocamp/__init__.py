@@ -1,5 +1,7 @@
 """Hippocamp — local-first agent memory."""
 
+from importlib.metadata import version
+
 from hippocamp.memory import Memory
 from hippocamp.types import (
     CompactReport,
@@ -12,7 +14,7 @@ from hippocamp.types import (
     Why,
 )
 
-__version__ = "0.3.4"
+__version__ = version("hippocamp")
 
 __all__ = [
     "Memory",
