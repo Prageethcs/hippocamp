@@ -9,7 +9,7 @@
 #   # or:
 #   bash scripts/install.sh [host] [path]
 #
-# Installs hippocamp[mcp,embeddings] and wires it into the chosen host.
+# Installs hippocamp[mcp,embeddings-lite] and wires it into the chosen host.
 # If `path` is given, every machine that runs install.sh with the same
 # path (and shares that folder via Dropbox / iCloud / Syncthing) will
 # see the same memory.
@@ -27,7 +27,7 @@ if ! command -v python3 >/dev/null 2>&1; then
 fi
 
 echo "→ Installing hippocamp..."
-python3 -m pip install --upgrade --quiet 'hippocamp[mcp,embeddings]'
+python3 -m pip install --upgrade --quiet 'hippocamp[mcp,embeddings-lite]'
 
 echo "→ Wiring hippocamp into ${HOST}..."
 if [ -n "$STORE_PATH" ]; then
