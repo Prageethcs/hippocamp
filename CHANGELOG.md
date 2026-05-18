@@ -4,9 +4,9 @@ All notable changes to Hippocamp are documented here. The format is based on [Ke
 
 ## [Unreleased]
 
-## [0.6.0] — 2026-05
+## [0.10.0] — 2026-05
 
-Patch-level release in spirit — bumped to 0.6.0 only because 0.5.3, 0.5.4, and 0.5.5 were all blocked on PyPI by earlier (deleted) uploads. No new features or breaking changes.
+Patch-level release in spirit — bumped to 0.10.0 only because 0.5.3, 0.5.4, 0.5.5, and 0.6.0 were all blocked on PyPI by earlier (deleted) uploads. No new features or breaking changes.
 
 ### Fixed
 - `hippocamp --version` reported `0.3.4` regardless of installed version. `__version__` now reads from package metadata (`importlib.metadata.version`), so `pyproject.toml` is the single source of truth.
