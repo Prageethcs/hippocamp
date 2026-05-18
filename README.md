@@ -30,9 +30,11 @@ The supporting wedges:
 ## Get started in 30 seconds
 
 ```bash
-pip install 'hippocamp[mcp,embeddings]'
+pip install 'hippocamp[mcp,embeddings-lite]'
 hippocamp setup claude
 ```
+
+The `embeddings-lite` extra (~150 MB) uses [fastembed](https://github.com/qdrant/fastembed) — same BGE-small embedder, ONNX runtime instead of PyTorch. For higher recall on hard cases there's also `[embeddings]` (~900 MB, adds sentence-transformers + Qwen3 as an option).
 
 Restart Claude Code. Try this — and watch the inline "*Saved to Hippocamp*" annotations as Claude proactively captures the signals:
 

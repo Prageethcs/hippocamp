@@ -4,6 +4,16 @@ All notable changes to Hippocamp are documented here. The format is based on [Ke
 
 ## [Unreleased]
 
+## [0.11.0] — 2026-05
+
+### Added
+- `FastembedBgeEmbedder` — BGE-small-en-v1.5 via [fastembed](https://github.com/qdrant/fastembed) (ONNX Runtime). Numerically equivalent to `BgeSmallEmbedder` (same weights), but ~6× smaller install footprint and typically faster per-call on CPU.
+- New `[embeddings-lite]` extra installs only `fastembed` (~150 MB) instead of the full sentence-transformers / PyTorch stack (~900 MB). Recommended default for users who only need BGE-small.
+
+### Changed
+- `default_embedder()` ordering now: `Qwen3` → `FastembedBge` → `BgeSmall` (sentence-transformers) → `Hash`. The lite path is preferred whenever it's available and Qwen3 isn't.
+- README now recommends `'hippocamp[mcp,embeddings-lite]'` for the install snippet. The heavier `[embeddings]` extra remains for users who want Qwen3.
+
 ## [0.10.0] — 2026-05
 
 Patch-level release in spirit — bumped to 0.10.0 only because 0.5.3, 0.5.4, 0.5.5, and 0.6.0 were all blocked on PyPI by earlier (deleted) uploads. No new features or breaking changes.
@@ -76,8 +86,9 @@ Patch-level release in spirit — bumped to 0.10.0 only because 0.5.3, 0.5.4, 0.
 ### Added
 - Initial alpha. Tiered memory (episodes / facts / preferences), why-trace recall, first-class forgetting (supersedence + TTL + tombstones), SQLite backend, MCP server with `recall_memory` and `update_memory`, `hippocamp` CLI with `setup`/`inspect`.
 
-[Unreleased]: https://github.com/Prageethcs/hippocamp/compare/v0.6.0...HEAD
-[0.6.0]: https://github.com/Prageethcs/hippocamp/releases/tag/v0.6.0
+[Unreleased]: https://github.com/Prageethcs/hippocamp/compare/v0.11.0...HEAD
+[0.11.0]: https://github.com/Prageethcs/hippocamp/releases/tag/v0.11.0
+[0.10.0]: https://github.com/Prageethcs/hippocamp/releases/tag/v0.10.0
 [0.5.2]: https://github.com/Prageethcs/hippocamp/releases/tag/v0.5.2
 [0.5.1]: https://github.com/Prageethcs/hippocamp/releases/tag/v0.5.1
 [0.5.0]: https://github.com/Prageethcs/hippocamp/releases/tag/v0.5.0

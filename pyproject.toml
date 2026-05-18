@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "hippocamp"
-version = "0.10.0"
+version = "0.11.0"
 description = "Local-first portable memory for AI agents — tiered storage, observable recall, first-class forgetting, cross-machine sync."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -23,6 +23,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+embeddings-lite = ["fastembed>=0.3"]
 embeddings = ["sentence-transformers>=2.2"]
 mcp = ["mcp>=1.0"]
 llm = ["anthropic>=0.40"]
@@ -30,6 +31,7 @@ dev = [
     "pytest>=8.0",
     "ruff>=0.6",
     "sentence-transformers>=2.2",
+    "fastembed>=0.3",
 ]
 
 [project.scripts]
