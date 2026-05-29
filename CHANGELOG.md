@@ -4,6 +4,17 @@ All notable changes to Hippocamp are documented here. The format is based on [Ke
 
 ## [Unreleased]
 
+## [0.11.1] — 2026-05
+
+### Fixed
+- `Store.search` did `SELECT … FROM memories LIMIT ?` with no `ORDER BY`, so once a store grew past a few thousand rows the candidate set was the oldest rows by rowid and recent writes were invisible to recall. Candidate retrieval now uses true KNN against a `memories_vec` sqlite-vec virtual table mirrored from `memories`, joined back for row data and the `superseded_at IS NULL` / kind filters.
+- `Store.update_embedding` keeps the vec mirror in sync so `Memory.reindex()` rebuilds make rows immediately searchable.
+
+### Added
+- One-time backfill on `Store.__init__` populates `memories_vec` from existing rows whose embedding dim matches the configured one. Rows of a different dim (e.g. after switching embedder from BGE-384 to Qwen3-1024) stay in `memories` but are skipped until `Memory.reindex()` rewrites them.
+- `sqlite-vec` is a runtime dependency. Extension load is wrapped in try/except: when `sqlite_vec` isn't installed or the Python build's sqlite3 lacks `enable_load_extension` (notably the python.org macOS installer), `Store` falls back to returning all active rows for the ranker — correct, slower than vec0, still better than the buggy `LIMIT`-without-`ORDER BY` path.
+- `[bundled-sqlite]` extra (Linux only — no macOS wheels) pulls in `pysqlite3-binary` for users whose stdlib sqlite3 can't load extensions. `store.py` prefers `pysqlite3 as sqlite3` when available.
+
 ## [0.11.0] — 2026-05
 
 ### Added
