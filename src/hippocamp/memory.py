@@ -81,8 +81,10 @@ class Memory:
         self._cache_path: Path | None = None
         self._device_id: str
 
+        embedding_dim = getattr(embedder, "dim", None)
+
         if str(path) == ":memory:":
-            self._store = Store(":memory:")
+            self._store = Store(":memory:", embedding_dim=embedding_dim)
             self._device_id = device_id or "in-memory"
             return
 
@@ -111,7 +113,7 @@ class Memory:
         # Resolve cache path: explicit arg > env > legacy file > OS default.
         self._cache_path = self._resolve_cache_path(cache_dir, legacy_cache_path)
         self._cache_path.parent.mkdir(parents=True, exist_ok=True)
-        self._store = Store(str(self._cache_path))
+        self._store = Store(str(self._cache_path), embedding_dim=embedding_dim)
 
         self._events = EventLog(store_dir / "events", self._device_id)
         self._migrate_legacy_single_file_log()
@@ -348,11 +350,12 @@ class Memory:
         Updates `meta.json`'s embedder name if it has changed (i.e. the
         caller opened with `force_embedder=True` to switch). Returns the
         number of memories re-embedded.
+
+        Also rewrites the vec0 mirror so newly-re-embedded rows are
+        immediately searchable.
         """
         if self._meta is None or self._store_dir is None:
             raise RuntimeError("reindex() requires an on-disk store")
-
-        import json as _json
 
         embedder_name = getattr(self._embedder, "name", type(self._embedder).__name__)
 
@@ -367,10 +370,7 @@ class Memory:
         n = 0
         for row_id, text in rows:
             new_emb = self._embedder(text or "")
-            self._store._conn.execute(
-                "UPDATE memories SET embedding = ? WHERE id = ?",
-                (_json.dumps(new_emb), row_id),
-            )
+            self._store.update_embedding(row_id, new_emb)
             n += 1
         return n
 

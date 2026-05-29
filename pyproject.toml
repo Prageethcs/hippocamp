@@ -20,6 +20,7 @@ classifiers = [
 ]
 dependencies = [
     "pydantic>=2.0",
+    "sqlite-vec>=0.1.6",
 ]
 
 [project.optional-dependencies]
@@ -27,6 +28,12 @@ embeddings-lite = ["fastembed>=0.3"]
 embeddings = ["sentence-transformers>=2.2"]
 mcp = ["mcp>=1.0"]
 llm = ["anthropic>=0.40"]
+# Bundled SQLite with extension-loading support. Required when running
+# on a Python whose stdlib sqlite3 was built without
+# enable_load_extension (notably the python.org macOS installer). Only
+# Linux wheels are published on PyPI today; on macOS you need a Python
+# that ships sqlite3 with extensions (Homebrew, uv-managed, etc).
+bundled-sqlite = ["pysqlite3-binary>=0.5; sys_platform == 'linux'"]
 dev = [
     "pytest>=8.0",
     "ruff>=0.6",
